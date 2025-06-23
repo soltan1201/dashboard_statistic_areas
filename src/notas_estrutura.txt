@@ -1,0 +1,34 @@
+dashboard_geo/
+├── app/
+│   ├── __init__.py         # Application Factory: cria e configura o app Flask
+│   ├── models.py           # Modelos do banco de dados (SQLAlchemy)
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── routes.py         # Onde a lógica do back-end e a API vão ficar
+│   ├── static/
+│   │   ├── css/
+│   │   │   └── style.css     # Nosso CSS customizado
+│   │   └── js/
+│   │       └── main.js       # Lógica do front-end (Fetch, Plotly, Leaflet)
+│   └── templates/
+│       └── index.html        # O template principal da nossa aplicação
+│
+├── dados/                    # ONDE VOCÊ DEVE SALVAR SEUS ARQUIVOS
+│   ├── tabela_dados_series.csv  # Primeira tabela
+│   ├── tabela_limites_area.csv  # Segunda tabela
+│   ├── tabela_classes_cores.csv # Terceira tabela
+│   └── geojson/              # **IMPORTANTE: Coloque aqui os GeoJSONs**
+│       ├── caatinga.geojson
+│       ├── semiarido.geojson
+│       ├── estados_br.geojson
+│       ├── regioes_br.geojson  # (meso-RH, etc.)
+│       └── vetores_br.geojson  # (MedioP, etc.)
+│
+├── instance/
+│   └── database.sqlite       # Onde o arquivo do banco de dados será criado
+│
+├── .env                      # Arquivo para variáveis de ambiente (chaves, etc.)
+├── config.py                 # Configurações do App (ex: caminho do DB)
+├── init_db.py                # Script para criar e popular o banco de dados
+├── requirements.txt          # Lista de dependências para deploy
+└── run.py                    # Script para iniciar o servidor de desenvolvimento

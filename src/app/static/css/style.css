@@ -1,0 +1,36 @@
+/* style.css */
+body {
+    font-size: .875rem;
+}
+
+#sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding-top: 56px; /* Altura do header */
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+main {
+    padding-top: 56px; /* Altura do header */
+}
+
+#map {
+    height: 450px;
+    width: 100%;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+/* Estilos para a tabela de ganho/perda */
+.gain {
+    background-color: #d4edda; /* Verde claro */
+    color: #155724;
+}
+
+.loss {
+    background-color: #f8d7da; /* Vermelho claro */
+    color: #721c24;
+}

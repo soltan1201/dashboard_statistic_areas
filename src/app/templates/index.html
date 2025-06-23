@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Geoespacial</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header class="bg-dark text-white p-3 shadow-sm">
+        <div class="container-fluid d-flex justify-content-between align-items-center">
+            <h4>Análise de Cobertura e Uso da Terra</h4>
+            <div class="btn-group" role="group" aria-label="Filtro de Bioma Principal">
+                <input type="radio" class="btn-check" name="limit_shp_filter" id="btn-caatinga" value="CAATINGA" autocomplete="off" checked>
+                <label class="btn btn-outline-light" for="btn-caatinga">Caatinga</label>
+
+                <input type="radio" class="btn-check" name="limit_shp_filter" id="btn-semiarido" value="SEMIARIDO" autocomplete="off">
+                <label class="btn btn-outline-light" for="btn-semiarido">Semiárido</label>
+            </div>
+        </div>
+    </header>
+
+    <div class="container-fluid">
+        <div class="row">
+            <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-light sidebar collapse">
+                <div class="position-sticky pt-3">
+                    <h6 class="sidebar-heading px-3 mt-4 mb-1 text-muted text-uppercase">Filtros Geográficos</h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item p-2">
+                            <label for="estado-filter" class="form-label">Estado</label>
+                            <select id="estado-filter" class="form-select form-select-sm">
+                                <option value="None" selected>Nenhum</option>
+                                {% for estado in estados %}
+                                <option value="{{ estado }}">{{ estado }}</option>
+                                {% endfor %}
+                            </select>
+                        </li>
+                        <li class="nav-item p-2">
+                            <label for="region-filter" class="form-label">Região</label>
+                            <select id="region-filter" class="form-select form-select-sm">
+                                <option value="None" selected>Nenhum</option>
+                                {% for region in regions %}
+                                <option value="{{ region }}">{{ region }}</option>
+                                {% endfor %}
+                            </select>
+                        </li>
+                        <li class="nav-item p-2">
+                            <label for="nomeVetor-filter" class="form-label">Vetor</label>
+                            <select id="nomeVetor-filter" class="form-select form-select-sm">
+                                <option value="None" selected>Nenhum</option>
+                                {% for vetor in vetores %}
+                                <option value="{{ vetor }}">{{ vetor }}</option>
+                                {% endfor %}
+                            </select>
+                        </li>
+                    </ul>
+
+                    <h6 class="sidebar-heading px-3 mt-4 mb-1 text-muted text-uppercase">Filtro Temporal</h6>
+                    <div class="p-3">
+                        <div id="time-slider" class="mt-3"></div>
+                        <div class="d-flex justify-content-between mt-2 small text-muted">
+                            <span id="start-year-label">1985</span>
+                            <span id="end-year-label">2024</span>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Visualização Integrada</h1>
+                </div>
+
+                <div id="loader" class="alert alert-info" style="display: none;">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Carregando...</span>
+                    </div>
+                    Carregando dados, por favor aguarde...
+                </div>
+                <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+                <div class="row mb-4">
+                    <div class="col-xl-7">
+                        <div class="card shadow-sm h-100">
+                            <div class="card-header">Mapa da Área Filtrada</div>
+                            <div class="card-body">
+                                <div id="map" style="height: 450px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-5">
+                        <div class="card shadow-sm h-100">
+                            <div class="card-header">Área por Classe de Cobertura</div>
+                            <div class="card-body">
+                                <div id="area-chart"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-lg-6">
+                         <div class="card shadow-sm">
+                            <div class="card-header">Tabela de Ganho e Perda (Período)</div>
+                            <div class="card-body" id="gain-loss-table">
+                                <p class="text-muted text-center p-5">Componente em desenvolvimento.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card shadow-sm">
+                            <div class="card-header">Fluxo entre Classes (Sankey)</div>
+                            <div class="card-body" id="sankey-chart">
+                                <p class="text-muted text-center p-5">Componente em desenvolvimento.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
