@@ -1,13 +1,17 @@
 # app/api/routes.py
 import os
 import pandas as pd
-# from pathlib import Path
+from tabulate import tabulate
 import geopandas as gpd
 from sqlalchemy import func
-from flask import Blueprint, request, jsonify
-from app.models import TimeSeriesData, ClassInfo, db
+from flask import  Blueprint, request, jsonify
+# Importe os modelos do banco de dados a partir da instância principal do db
+from app import db
+from app.models import TimeSeriesData, ClassInfo, LimitArea
 
+# 1. Cria o Blueprint para a API
 api_bp = Blueprint('api', __name__)
+
 pathparent = str(os.getcwd())
 print(" we set the path ==> ", os.getcwd())
 # NOTA: Carregar os geojson pode ser lento. Para produção, considere cachear.
@@ -37,13 +41,14 @@ gdfs = {}
 for name, path in GEOJSON_PATHS.items():
     try:
         gdfs[name] = gpd.read_file(path)
-        print(f"Carregado: {name}")
+        # print(f"Carregado: {name}")
     except Exception as e:
         print(f"Erro ao carregar {name}: {str(e)}")
         gdfs[name] = None
 
 print(f" We have loaded {len(list(gdfs.keys()))} maps ")
 
+# 2. Define a rota /data dentro do Blueprint. A URL final será /api/data
 @api_bp.route('/data')
 def get_data():
     # 1. Obter parâmetros do request
@@ -53,15 +58,15 @@ def get_data():
     estado_name = request.args.get('estado_name', None, type=str)
     start_year = request.args.get('start_year', 1985, type=int)
     end_year = request.args.get('end_year', 2024, type=int)
-
+    limit_shp = str(limit_shp).upper()
     print(f"""
             Parâmetros recebidos:
-            limit_shp = {limit_shp}
-            region = {region}
-            nomeVetor = {nomeVetor}
-            estado_name = {estado_name}
-            start_year = {start_year}
-            end_year = {end_year}
+                * limit_shp = {limit_shp}
+                * region = {region}
+                * nomeVetor = {nomeVetor}
+                * estado_name = {estado_name}
+                * start_year = {start_year}
+                * end_year = {end_year}
     """)
     
 
@@ -69,7 +74,7 @@ def get_data():
     if nomeVetor == 'null':
         nomeVetor = None
     print("Valores únicos de nomeVetor no banco:", 
-      db.session.query(TimeSeriesData.nomeVetor).distinct().all())  
+                    db.session.query(TimeSeriesData.nomeVetor).distinct().all())  
 
     # 2. Construir a query base com base nos filtros
     # TimeSeriesData é a tabela que tem todos os dados de área, classe
@@ -94,9 +99,8 @@ def get_data():
         query = query.filter(func.lower(TimeSeriesData.nomeVetor) == func.lower(nomeVetor))
         # group_by_fields.append(TimeSeriesData.nomeVetor)
 
-
     df = pd.read_sql(query.statement, db.engine)
-    print(f"Registros encontrados: {len(df)}")
+    print(f"Registros encontrados: {df.shape}")
     
     if df.empty:
         # Retorna estrutura vazia se não houver dados
@@ -109,6 +113,9 @@ def get_data():
     
     # 3. Agrupamento dos dados (sem alterações aqui)
     data_for_charts = df.groupby(['year', 'classe'])['area'].sum().reset_index()
+    data_for_charts['classe'] = data_for_charts['classe'].astype(int)
+    data_for_charts['year'] = data_for_charts['year'].astype(int)
+    print(tabulate(data_for_charts.head(5), headers = 'keys', tablefmt = 'psql', floatfmt=".2f"))
 
     # 4. Lógica de Geoprocessamento (Intersect)
     # Começa com o limite principal
@@ -148,25 +155,48 @@ def get_data():
     class_info_df = pd.read_sql(db.session.query(ClassInfo).statement, db.engine)
     # Cria um mapa de ID -> Nome da Classe
     name_map = pd.Series(class_info_df.class_name.values, index=class_info_df.code_id).to_dict()
+    name_map = dict(name_map)
+    print("ver a tabela de classes v1 ", name_map)
     # Cria um mapa de ID -> Cor Hexadecimal
     color_map = pd.Series(class_info_df.hex_color.values, index=class_info_df.code_id).to_dict()
-    
+    print("ver a tabela de color_map v1 ", color_map)
     charts_data = {}
     years = sorted(data_for_charts['year'].unique().tolist())
 
+    # #get values of name class
+    # # 3. (Sugestão 2) Busca os nomes das classes para os títulos (ClassInfo)
+    info_area_results = LimitArea.query.all()    
+    dict_area_limits = {c.state_limit: c.area for c in info_area_results}
+    print("ver a tabela de LimitArea  ", dict_area_limits)
+
+    dict_area_exp = {}
+    dict_area_exp[limit_shp] = dict_area_limits[limit_shp]
+    if estado_name:
+        dict_area_exp[str(estado_name).upper()] = dict_area_limits[str(estado_name).upper()]
+        area_estado = data_for_charts[data_for_charts['year'] == int(end_year)]['area'].sum()
+        area_estado = round(float(area_estado), 2)
+        dict_area_exp[str(estado_name).upper() + '_interna'] = area_estado
+
+    print("ver a tabela de LimitArea final ", dict_area_exp)
+
     for classe_id, group in data_for_charts.groupby('classe'):
         # --- MUDANÇA 2: Estrutura de dados simplificada ---
-        class_name = name_map.get(classe_id, f'Classe {classe_id}')
-        class_color = color_map.get(classe_id, '#cccccc') # Usa cinza como cor padrão
+        if classe_id != 0:
+            # classe_id = 27
+            class_name = name_map[classe_id]
+            print(f" classe Id == {classe_id}  <> {class_name}")      
+            
+            class_color = color_map.get(classe_id, '#cccccc') # Usa cinza como cor padrão
 
-        series_data = group.set_index('year')['area'].reindex(years, fill_value=0)
+            series_data = group.set_index('year')['area'].reindex(years, fill_value=0)
 
-        charts_data[class_name] = {
-            'years': years,
-            'series_data': series_data.tolist(),
-            'color': class_color,
-            'class_name': class_name
-        }
+            charts_data[class_name] = {
+                'years': years,
+                'series_data': series_data.tolist(),
+                'color': class_color,
+                'class_name': class_name
+            }
+
 
     # Aqui você adicionaria a lógica para a tabela de Ganho/Perda e o Sankey
     # A lógica do Sankey precisa de dados de 2 anos específicos.
@@ -176,6 +206,7 @@ def get_data():
     return jsonify({
         'map_geojson': map_geojson,
         'bar_chart_data': charts_data,
+        'statistical_summary': dict_area_exp,
         # 'sankey_data': sankey_data,
         # 'gain_loss_data': gain_loss_data
     })
