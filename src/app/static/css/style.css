@@ -1,36 +1,40 @@
-/* style.css */
-body {
-    font-size: .875rem;
+/* Adicione ao seu style.css */
+.chart-card {
+    height: 300px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    overflow: hidden;
 }
 
-#sidebar {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 100;
-    padding-top: 56px; /* Altura do header */
-    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+.chart-container {
+    height: 250px;
+    padding: 10px;
 }
 
-main {
-    padding-top: 56px; /* Altura do header */
+.card-header {
+    padding: 10px 15px;
+    font-weight: 600;
+    font-size: 0.9rem;
 }
 
-#map {
-    height: 450px;
-    width: 100%;
-    border: 1px solid #ddd;
-    border-radius: 5px;
+.grid-row {
+    margin-bottom: 20px;
 }
 
-/* Estilos para a tabela de ganho/perda */
-.gain {
-    background-color: #d4edda; /* Verde claro */
-    color: #155724;
+.stats-card {
+    height: 100%;
 }
 
-.loss {
-    background-color: #f8d7da; /* Vermelho claro */
-    color: #721c24;
+/* Estilo para cabeçalhos de classe */
+.bg-secondary {
+    background: linear-gradient(135deg, #3498db, #2c3e50) !important;
+}
+
+/* Ajuste de responsividade para telas menores */
+@media (max-width: 992px) {
+    .chart-card {
+        height: auto;
+        min-height: 300px;
+    }
 }

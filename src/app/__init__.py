@@ -7,6 +7,19 @@ from flask_sqlalchemy import SQLAlchemy
 # Inicializa a extensão do banco de dados
 db = SQLAlchemy()
 
+#  Relação de camadas para destaques:
+#  Assentamento_Brasil - Asentamentos 
+#  nucleos_desertificacao - Nucleos de desertificação,
+#  UnidadesConservacao_S - Unidades de conservação  -> 'TipoUso' -> ["Proteção Integral", "Proteção integral",  "Uso Sustentável"]
+#  unidade_gerenc_RH_SNIRH_2020- Unidade de gerenciamento de recursos Hidricos 
+#  tis_poligonais_portarias -  Terras indígenas
+#  prioridade-conservacao - Prioridade de conservação (usar apenas Extremamente alta)
+#  florestaspublicas - Unidades de conservação
+#  areas_Quilombolas - áreas quilombolas
+#  macro_RH - Bacias hidrográficas 
+#  reserva da biosfera - 'zona' ->  ["nucleo","transicao","amortecimento"]
+#  Novo limite do semiarido 2024
+
 def create_app(config_class=Config):
     """Cria e configura uma instância da aplicação Flask."""
     app = Flask(__name__, instance_relative_config=True)
@@ -24,6 +37,46 @@ def create_app(config_class=Config):
     # Registra os blueprints (nossas rotas)
     from .api import routes as api_routes
     app.register_blueprint(api_routes.api_bp, url_prefix='/api')
+    dict_nome_subregions =  {
+        'Assent-Br': ['Assent-Br'],
+        'res-biosf': ['nucleo', 'transicao', 'amortecimento'],
+        'prioridade-conservacao-V2': [
+            'prioridade-conservacao-V1', 'prioridade-conservacao-V2', 'ext-alta'
+        ],
+        'bacia-sao-francisco': [
+            'Baixo-Sao-Francisco', 'Submedio-Sao-Francisco',
+            'Medio-Sao-Francisco','Alto-Sao-Francisco'
+        ],
+        'meso-RH': [
+            'AltoP', 'MedioP','BaixoP',
+            'AtlaNO-Jag','AtlaNO-LC','AtlaNO-LRGNP','AtlaNO-PPA','AtlaNO-LPA',
+            'MedioSF','SubmedSF','BaixoSF',
+            'AtlaL-C','AtlaL-IP','AtlaL-JP','AtlaL-VB',
+        ],
+        'micro-RH': ['micro-RH'],
+        'macro-RH': [
+            "PARNAÍBA", "ATLÂNTICO NORDESTE ORIENTAL", 
+            "SÃO FRANCISCO", "ATLÂNTICO LESTE"
+        ],
+        'UnidCons-S': ['UnidCons-S', 'prot-Int', 'Uso-sustt'],
+        'tis-port': ['tis-port'],
+        'areaQuil': ['areaQuil'],        
+        'nucleos-desert': ['nucleos-desert'] ,        
+        'energias-renovaveis': ['energias-renovaveis'],         
+        'transposicao-cbhsf': ['transposicao-cbhsf'],    
+        'matopiba': ['matopiba'],        
+    }
+    # lst_nome_subregions = [
+    #     'Assent-Br','nucleo', 'transicao', 'amortecimento','prioridade-conservacao-V1', 
+    #     'prioridade-conservacao-V2', 'ext-alta','Baixo-Sao-Francisco', 'Submedio-Sao-Francisco',
+    #     'Medio-Sao-Francisco','Alto-Sao-Francisco','AltoP', 'MedioP','BaixoP',
+    #     'AtlaNO-Jag','AtlaNO-LC','AtlaNO-LRGNP','AtlaNO-PPA','AtlaNO-LPA',
+    #     'MedioSF','SubmedSF','BaixoSF','AtlaL-C','AtlaL-IP','AtlaL-JP','AtlaL-VB',
+    #     'micro-RH',"PARNAÍBA", "ATLÂNTICO NORDESTE ORIENTAL","SÃO FRANCISCO", 
+    #     "ATLÂNTICO LESTE",'UnidCons-S', 'prot-Int', 'Uso-sustt',
+    #     'tis-port','areaQuil','nucleos-desert','energias-renovaveis','transposicao-cbhsf',
+    #     'matopiba'
+    # ]
 
     # Rota principal para servir o index.html
     @app.route('/')
@@ -44,24 +97,14 @@ def create_app(config_class=Config):
             'nucleos-desert', 'energias-renovaveis', 'matopiba', 'micro-RH'
         ])))
 
-        nome_vetor_options = sorted(list(set([
-            'Assent-Br', 'res-biosf', 'prioridade-conservacao-V2', 'Alto-Sao-Francisco', 
-            'ext-alta', 'AtlaNO-PPA', 'MedioSF', 'Caatinga', 'AtlaNO-Jag', 'BaixoSF', 
-            'meso-RH', 'Medio-Sao-Francisco', 'macro-RH', 'UnidCons-S', 'tis-port', 
-            'micro-RH', 'AltoP', 'AtlaL-C', 'Baixo-Sao-Francisco', 'transposicao-cbhsf', 
-            'BaixoP', 'SA', 'MedioP', 'areaQuil', 'AtlaNO-LRGNP', 'amortecimento', 
-            'AtlaL-VB', 'energias-renovaveis', 'AtlaL-JP', 'SubmedSF', 
-            'prioridade-conservacao-V1', 'bacia-sao-francisco', 'semiarido',
-            'Submedio-Sao-Francisco', 'AtlaNO-LC', 'matopiba', 'Uso-sustt', 
-            'nucleos-desert', 'AtlaNO-LPA', 'AtlaL-IP', 'prot-Int', 'nucleo', 'transicao'
-        ])))
-
         # Passamos as listas para o template no momento da renderização
+        # Passa os mesmos dados para JS
         return render_template(
             'index.html', 
             estados=estados_options,
             regions=region_options,
-            vetores=nome_vetor_options
+            vetores=dict_nome_subregions,    
+            vetores_data=dict_nome_subregions
         )
 
     return app
