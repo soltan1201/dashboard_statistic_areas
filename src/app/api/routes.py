@@ -2,16 +2,14 @@
 import os
 import pandas as pd
 # from pathlib import Path
-from datetime import datetime
-from tabulate import tabulate
 import geopandas as gpd
+from sqlalchemy import func
 from flask import Blueprint, request, jsonify
 from app.models import TimeSeriesData, ClassInfo, db
-from sqlalchemy import text
 
 api_bp = Blueprint('api', __name__)
 pathparent = str(os.getcwd())
-# print(" we set the path ==> ", os.getcwd())
+print(" we set the path ==> ", os.getcwd())
 # NOTA: Carregar os geojson pode ser lento. Para produção, considere cachear.
 # Os caminhos devem ser ajustados para os seus arquivos.
 GEOJSON_PATHS = {
@@ -39,20 +37,12 @@ gdfs = {}
 for name, path in GEOJSON_PATHS.items():
     try:
         gdfs[name] = gpd.read_file(path)
-        # print(f"Carregado: {name}")
+        print(f"Carregado: {name}")
     except Exception as e:
         print(f"Erro ao carregar {name}: {str(e)}")
         gdfs[name] = None
 
-print(f" ---- {len(list(gdfs.keys()))} GeoJSONs carregados !!! --- ")
-
-@api_bp.route('/test')
-def test_endpoint():
-    return {
-        "status": "success",
-        "message": "API funcionando",
-        "timestamp": datetime.now().isoformat()
-    }
+print(f" We have loaded {len(list(gdfs.keys()))} maps ")
 
 @api_bp.route('/data')
 def get_data():
@@ -64,7 +54,6 @@ def get_data():
     start_year = request.args.get('start_year', 1985, type=int)
     end_year = request.args.get('end_year', 2024, type=int)
 
-    # DEBUG: Log dos parâmetros
     print(f"""
             Parâmetros recebidos:
             limit_shp = {limit_shp}
@@ -73,12 +62,14 @@ def get_data():
             estado_name = {estado_name}
             start_year = {start_year}
             end_year = {end_year}
-        """
-    )
+    """)
+    
 
     # Se nomeVetor for 'None' (string), trata como None
     if nomeVetor == 'null':
         nomeVetor = None
+    print("Valores únicos de nomeVetor no banco:", 
+      db.session.query(TimeSeriesData.nomeVetor).distinct().all())  
 
     # 2. Construir a query base com base nos filtros
     # TimeSeriesData é a tabela que tem todos os dados de área, classe
@@ -92,36 +83,21 @@ def get_data():
 
     # Adicionar filtros e campos de agrupamento dinamicamente    
     if estado_name and estado_name != 'None':
-        query = query.filter(TimeSeriesData.estado_name == estado_name)
+        query = query.filter(func.lower(TimeSeriesData.estado_name) == func.lower(estado_name))
         # group_by_fields.append(TimeSeriesData.estado_name)
 
     if region and region != 'None':
-        query = query.filter(TimeSeriesData.region == region)
+        query = query.filter(func.lower(TimeSeriesData.region) == func.lower(region))
         # group_by_fields.append(TimeSeriesData.region)
 
     if nomeVetor and nomeVetor != 'None':
-        query = query.filter(TimeSeriesData.nomeVetor == nomeVetor)
+        query = query.filter(func.lower(TimeSeriesData.nomeVetor) == func.lower(nomeVetor))
         # group_by_fields.append(TimeSeriesData.nomeVetor)
 
-    # DEBUG: Mostrar consulta SQL
-    # Substitua toda a parte de query por:
-    sql = f"""
-        SELECT * 
-        FROM time_series_data
-        WHERE 
-            limit_shp = '{limit_shp}' 
-            AND year BETWEEN {start_year} AND {end_year}
-            {"AND estado_name = '" + estado_name + "'" if estado_name and estado_name != 'None' else ""}
-            {"AND region = '" + region + "'" if region and region != 'None' else ""}
-            {"AND nomeVetor = '" + nomeVetor + "'" if nomeVetor and nomeVetor != 'None' else ""}
-    """
 
-    print("SQL Executado:", sql)
-    # print("SQL Query:", str(query.statement.compile(db.engine)))
-    # df = pd.read_sql(query.statement, db.engine)
-    df = pd.read_sql(text(sql), db.engine)
-    print(f"Registros encont {df.shape}")
-    print(tabulate(df.head(5), headers = 'keys', tablefmt = 'psql', floatfmt=".2f"))
+    df = pd.read_sql(query.statement, db.engine)
+    print(f"Registros encontrados: {len(df)}")
+    
     if df.empty:
         # Retorna estrutura vazia se não houver dados
         return jsonify({
@@ -133,7 +109,6 @@ def get_data():
     
     # 3. Agrupamento dos dados (sem alterações aqui)
     data_for_charts = df.groupby(['year', 'classe'])['area'].sum().reset_index()
-
 
     # 4. Lógica de Geoprocessamento (Intersect)
     # Começa com o limite principal
@@ -159,13 +134,11 @@ def get_data():
             map_gdf = gpd.overlay(map_gdf, region_gdf, how='intersection')
     
     # ... Lógica similar para nomeVetor ...
-    # map_geojson = map_gdf.to_json() if not map_gdf.empty else map_gdf.__geo_interface__  # Use a interface 
     if not map_gdf.empty:
         map_geojson = map_gdf.__geo_interface__
     else:
         map_geojson = None
-
-    #  GeoJSON nativa
+    # GeoJSON nativa
 
     # ==============================================================================
     # 5. PREPARAR DADOS PARA OS GRÁFICOS (LÓGICA REESCRITA E SIMPLIFICADA)
