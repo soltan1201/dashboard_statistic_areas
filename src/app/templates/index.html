@@ -10,26 +10,187 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.7.8/handlebars.min.js"></script>
     
     <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --light-bg: #f8f9fa;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--light-bg);
+            color: #333;
+        }
+        
         .chart-card {
-            height: 300px;
-            margin-bottom: 20px;
+            height: 400px;
+            margin-bottom: 25px;
+            border: none;
+            border-radius: 10px;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
+        
+        .chart-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        }
+        
         .chart-container {
-            height: 250px;
+            height: 270px;
         }
+        
         .card-header {
-            padding: 10px 15px;
+            padding: 12px 18px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
+        
         .grid-row {
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
+        
         .stats-card {
             height: 100%;
+            border-radius: 10px;
+            overflow: hidden;
         }
+        
+        /* Estilos para a tabela de ganho/perda */
+        .gain-loss-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: var(--card-shadow);
+        }
+        
+        .gain-loss-table th {
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 600;
+            padding: 12px;
+        }
+        
+        .gain-loss-table td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+        .gain-loss-table td:first-child {
+            max-width: 250px;
+            min-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .gain-loss-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .gain-loss-table .positive {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: 600;
+        }
+        .gain-loss-table .negative {
+            background-color: #e74c3c;
+            color: white;
+            font-weight: 600;
+        }
+        
+        /* Estilos para o resumo estatístico */
+        .stat-card {
+            margin-bottom: 12px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+        
+        .stat-card .card-body {
+            padding: 12px 15px;
+        }
+        
+        .stat-card strong {
+            color: var(--secondary-color);
+        }
+        
+        /* Botões e controles */
+        .btn-chart-action {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            padding: 0;
+            margin-left: 8px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        
+        .btn-chart-action:hover {
+            color: white;
+        }
+        
+        /* Filtros */
+        .filter-section {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: var(--card-shadow);
+        }
+        
+        /* Mapa */
+        #map-container {
+            border-radius: 8px;
+            overflow: hidden;
+            height: 400px;
+        }
+        
+        /* Barra de pesquisa */
+        .search-box {
+            margin-bottom: 20px;
+        }
+        
+        /* Animações */
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Mensagens */
+        .no-data-message {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6c757d;
+        }
+        
+        /* Responsividade */
+        @media (max-width: 992px) {
+            .chart-card {
+                height: auto;
+            }
+            
+            .chart-container {
+                height: 250px;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -53,45 +214,61 @@
             <!-- Sidebar -->
             <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
                 <div class="position-sticky pt-3">
-                    <h6 class="sidebar-heading px-3 mt-4 mb-1 text-muted text-uppercase">
-                        <i class="fas fa-filter me-1"></i> Filtros Geográficos
-                    </h6>
-                    <ul class="nav flex-column mb-2">
-                        <li class="nav-item p-2">
-                            <label for="estado-filter" class="form-label small">Estado</label>
-                            <select id="estado-filter" class="form-select form-select-sm">
-                                <option value="None" selected>Nenhum</option>
-                                {% for estado in estados %}
-                                <option value="{{ estado }}">{{ estado }}</option>
-                                {% endfor %}
-                            </select>
-                        </li>
-                        <li class="nav-item p-2">
-                            <label for="region-filter" class="form-label small">Região</label>
-                            <select id="region-filter" class="form-select form-select-sm">
-                                <option value="None" selected>Nenhum</option>
-                                {% for region in regions %}
-                                <option value="{{ region }}">{{ region }}</option>
-                                {% endfor %}
-                            </select>
-                        </li>
-                        <li class="nav-item p-2">
-                            <label for="nomeVetor-filter" class="form-label small">Vetor</label>
-                            <select id="nomeVetor-filter" class="form-select form-select-sm">
-                                <option value="None" selected>Nenhum</option>
-                                <!-- As opções serão preenchidas pelo JavaScript -->
-                            </select>
-                        </li>
-                    </ul>
+                    <div class="filter-section">
+                        <h6 class="sidebar-heading mb-3 text-muted text-uppercase">
+                            <i class="fas fa-filter me-1"></i> Filtros Geográficos
+                        </h6>
+                        <ul class="nav flex-column mb-2">
+                            <li class="nav-item mb-3">
+                                <label for="estado-filter" class="form-label small">Estado</label>
+                                <select id="estado-filter" class="form-select form-select-sm">
+                                    <option value="None" selected>Nenhum</option>
+                                    {% for estado in estados %}
+                                    <option value="{{ estado }}">{{ estado }}</option>
+                                    {% endfor %}
+                                </select>
+                            </li>
+                            <li class="nav-item mb-3">
+                                <label for="region-filter" class="form-label small">Região</label>
+                                <select id="region-filter" class="form-select form-select-sm">
+                                    <option value="None" selected>Nenhum</option>
+                                    {% for region in regions %}
+                                    <option value="{{ region }}">{{ region }}</option>
+                                    {% endfor %}
+                                </select>
+                            </li>
+                            <li class="nav-item">
+                                <label for="nomeVetor-filter" class="form-label small">Vetor</label>
+                                <select id="nomeVetor-filter" class="form-select form-select-sm">
+                                    <option value="None" selected>Nenhum</option>
+                                    <!-- As opções serão preenchidas pelo JavaScript -->
+                                </select>
+                            </li>
+                        </ul>
+                    </div>
 
-                    <h6 class="sidebar-heading px-3 mt-4 mb-1 text-muted text-uppercase">
-                        <i class="fas fa-calendar-alt me-1"></i> Filtro Temporal
-                    </h6>
-                    <div class="px-3 pb-3">
-                        <div id="time-slider" class="mt-2"></div>
-                        <div class="d-flex justify-content-between mt-2 small">
-                            <span id="start-year-label">1985</span>
-                            <span id="end-year-label">2024</span>
+                    <div class="filter-section">
+                        <h6 class="sidebar-heading mb-3 text-muted text-uppercase">
+                            <i class="fas fa-calendar-alt me-1"></i> Filtro Temporal
+                        </h6>
+                        <div class="px-1 pb-2">
+                            <div id="time-slider" class="mt-2"></div>
+                            <div class="d-flex justify-content-between mt-2 small">
+                                <span id="start-year-label">1985</span>
+                                <span id="end-year-label">2024</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h6 class="sidebar-heading mb-3 text-muted text-uppercase">
+                            <i class="fas fa-search me-1"></i> Buscar Classe
+                        </h6>
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="class-search" class="form-control" placeholder="Pesquisar classe...">
+                            <button class="btn btn-outline-secondary" type="button">
+                                <i class="fas fa-search"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -101,38 +278,65 @@
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 pt-3">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Visualização Integrada</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button id="export-btn" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-download me-1"></i> Exportar Dados
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Loading and Error Messages -->
-                <div id="loader" class="alert alert-info d-none">
-                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                    Carregando dados, por favor aguarde...
+                <div id="loader" class="alert alert-info d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-3" role="status"></div>
+                    <div>
+                        <strong>Carregando dados</strong>
+                        <div class="small">Por favor aguarde enquanto processamos sua requisição...</div>
+                    </div>
                 </div>
+                
                 <div id="error-message" class="alert alert-danger d-none"></div>
+                
+                <div id="no-data-message" class="alert alert-warning d-none">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    Nenhum dado encontrado com os filtros selecionados. Tente ajustar seus critérios de busca.
+                </div>
 
                 <!-- Primeira Linha: Mapa e Estatísticas -->
-                <div class="row grid-row">
+                <div class="row grid-row animate-fade-in">
                     <!-- Mapa (2 colunas) -->
                     <div class="col-lg-8">
                         <div class="card h-100">
-                            <div class="card-header bg-primary text-white">
-                                <i class="fas fa-map me-2"></i> Mapa da Área Filtrada
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-map me-2"></i> Mapa da Área Filtrada
+                                </div>
+                                <div>
+                                    <button id="map-zoom-in" class="btn-chart-action">
+                                        <i class="fas fa-search-plus"></i>
+                                    </button>
+                                    <button id="map-zoom-out" class="btn-chart-action">
+                                        <i class="fas fa-search-minus"></i>
+                                    </button>
+                                    <button id="map-reset" class="btn-chart-action">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body p-0">
-                                <div id="map-container" style="height: 400px;"></div>
+                                <div id="map-container"></div>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Estatísticas (1 coluna) -->
                     <div class="col-lg-4">
-                        <div class="card stats-card">
+                        <div class="card stats-card h-100">
                             <div class="card-header bg-primary text-white">
                                 <i class="fas fa-chart-pie me-2"></i> Resumo Estatístico
                             </div>
                             <div class="card-body">
-                                <div id="stats-container">
-                                    <p class="text-muted text-center">Os dados estatísticos serão carregados...</p>
+                                <div id="statistical-summary-container">
+                                    <p class="text-muted text-center py-5">Os dados estatísticos serão carregados...</p>
                                 </div>
                             </div>
                         </div>
@@ -140,137 +344,47 @@
                 </div>
 
                 <!-- Segunda Linha: Título das Classes de Cobertura -->
-                <div class="row grid-row">
+                <div class="row grid-row animate-fade-in">
                     <div class="col-12">
                         <div class="card">
-                            <div class="card-header bg-primary text-white">
-                                <i class="fas fa-layer-group me-2"></i> Classes de Cobertura da Terra
+                            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-layer-group me-2"></i> Classes de Cobertura da Terra
+                                </div>
+                                <div class="small">
+                                    <span id="class-count">0</span> classes encontradas
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Linhas seguintes: Gráficos das Classes (3 por linha) -->
-                <div class="row grid-row">
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 1: Formação Florestal
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-1" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 2: Formação Savânica
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-2" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 3: Formação Campestre
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-3" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="row grid-row">
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 4: Agropecuária
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-4" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 5: Área Úmida
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-5" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 6: Área Artificial
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-6" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="row grid-row">
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 7: Outras Formações
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-7" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 8: Corpo d'Água
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-8" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-lg-4">
-                        <div class="card chart-card">
-                            <div class="card-header bg-secondary text-white">
-                                Classe 9: Vegetação Secundária
-                            </div>
-                            <div class="card-body">
-                                <div id="chart-class-9" class="chart-container"></div>
-                            </div>
-                        </div>
-                    </div>
+                <!-- Área de gráficos (será preenchida dinamicamente) -->
+                <div id="charts-area">
+                    <!-- Os gráficos serão inseridos aqui via JavaScript -->
                 </div>
 
                 <!-- Última Linha: Tabela de Ganho/Perda e Sankey -->
-                <div class="row grid-row">
+                <div class="row grid-row animate-fade-in">
                     <div class="col-lg-6">
-                        <div class="card">
+                        <div class="card h-100">
                             <div class="card-header bg-primary text-white">
                                 <i class="fas fa-exchange-alt me-2"></i> Tabela de Ganho e Perda
                             </div>
                             <div class="card-body">
-                                <div id="gain-loss-table">
-                                    <p class="text-muted text-center p-5">Componente em desenvolvimento.</p>
+                                <div id="gain-loss-container">
+                                    <!-- Conteúdo será gerado por JavaScript -->
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-lg-6">
-                        <div class="card">
+                        <div class="card h-100">
                             <div class="card-header bg-primary text-white">
                                 <i class="fas fa-random me-2"></i> Fluxo entre Classes
                             </div>
                             <div class="card-body">
-                                <div id="sankey-chart">
+                                <div id="sankey-chart" style="height: 300px;">
                                     <p class="text-muted text-center p-5">Componente em desenvolvimento.</p>
                                 </div>
                             </div>
@@ -280,42 +394,75 @@
             </main>
         </div>
     </div>
+    <!-- Adicione isto ANTES do footer -->
+    <script id="chart-card-template" type="text/x-handlebars-template">
+        <div class="row grid-row">
+        {% raw %}
+            {{#each classes}}
+                <div class="col-lg-4">
+                    <div class="card chart-card animate-fade-in">
+                        <div class="card-header bg-secondary text-white">
+                            <div class="text-truncate">Classe {{id}}: {{name}}</div>
+                            <div>
+                                <button class="btn-chart-action download-chart" data-id="{{id}}">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="chart-class-{{id}}" class="chart-container"></div>
+                        </div>
+                    </div>
+                </div>
+            {{/each}}
+        {% endraw %}
+        </div>
+    </script>
 
     <footer class="footer mt-auto py-3 bg-dark text-white">
         <div class="container-fluid text-center">
             <span>&copy; 2024 <a href="https://geodatin.com" class="text-light">Geodatin</a>. Todos os direitos reservados.</span>
         </div>
     </footer>
+   
 
-    <!-- Scripts -->
-     <script>
-        // Diagnóstico final
-        console.log("Funções disponíveis:", {
-            loadVetorOptions: typeof loadVetorOptions,
-            initMap: typeof initMap,
-            initTimeSlider: typeof initTimeSlider
-        });
-    </script>
-     <!-- MOVER O TEMPLATE PARA AQUI (fora de qualquer container) -->
-    <script id="vetor-options-template" type="text/x-handlebars-template">                    
-        {% raw %}
-            {{#each vetores}}
-                <optgroup label="{{@key}}">
-                    {{#each this}}
-                        <option value="{{this}}">{{this}}</option>
-                    {{/each}}
-                </optgroup>
-            {{/each}}
-        {% endraw %}
-    </script>
     <script>
         // Passa os dados de vetores para o JavaScript
         window.vetoresData = {{ vetores_data|tojson|safe }};
+        window.classesData = {
+            3: "1.1 Formação Florestal",
+            4: "1.2. Formação Savânica",
+            5: "1.3. Mangue",
+            9: "3.3. Silvicultura",
+            11: "2.1. Campo Alagado e Área Pantanosa",
+            12: "2.2. Formação Campestre",
+            15: "3.1. Pastagem",
+            20: "3.2.1.2. Cana",
+            21: "3.4. Mosaico de Usos",
+            23: "4.1. Praia,Duna e Areal",
+            24: "4.2. Área Urbanizada",
+            25: "4.4. Outras Áreas não Vegetadas",
+            27: "6. Não observado",
+            29: "2.4. Afloramento Rochoso",
+            30: "4.3. Mineração",
+            31: "5.2 Aquicultura",
+            32: "2.3. Apicum",
+            33: "5.1 Rio,Lago e Oceano",
+            39: "3.2.1.1. Soja",
+            41: "3.2.1.5. Outras Lavouras Temporárias",
+            46: "3.2.2.1. Café",
+            48: "3.2.2.4. Outras Lavouras Perenes",
+            49: "1.5. Restinga Arbórea",
+            50: "2.5. Restinga Herbácea",
+            62: "3.2.1.4. Algodão (beta)",
+            75: "4.5 Solar Panels"
+        };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

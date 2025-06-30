@@ -1,92 +1,79 @@
-// app/static/js/main.js (Versão Final e Corrigida)
-
-// Função para processar vetores hierárquicos
-function processVetorOptions(vetores) {
-    console.log("Processando opções de vetor...");
-    
-    // 1. Encontra o elemento select
-    const vetorSelect = document.getElementById('nomeVetor-filter');
-    if (!vetorSelect) {
-        console.error("Elemento 'nomeVetor-filter' não encontrado!");
-        return;
-    }
-    
-    // 2. Limpa opções existentes (mantém apenas 'Nenhum')
-    while (vetorSelect.options.length > 1) {
-        vetorSelect.remove(1);
-    }
-    
-    // 3. Encontra o template Handlebars
-    const templateElement = document.getElementById('vetor-options-template');
-    if (!templateElement) {
-        console.error("Elemento 'vetor-options-template' não encontrado!");
-        return;
-    }
-    
-    // 4. Compila e renderiza o template
-    try {
-        const template = Handlebars.compile(templateElement.innerHTML);
-        const html = template({ vetores: vetores });
-        vetorSelect.insertAdjacentHTML('beforeend', html);
-        console.log(`Adicionadas ${Object.keys(vetores).length} categorias de vetores`);
-    } catch (error) {
-        console.error("Erro ao processar template Handlebars:", error);
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function () {
-    
     // --- SELETORES DE ELEMENTOS ---
-    // Centraliza a busca por elementos do DOM para facilitar a manutenção.
-    const mapContainer = L.map('map-container').setView([-10, -55], 4);
+    // Mapa
+    const mapContainer = document.getElementById('map-container');
+    let map = null;
+    let geojsonLayer = null;
+    let currentBounds = null;
+    
+    // Slider de tempo
     const timeSlider = document.getElementById('time-slider');
     const startYearLabel = document.getElementById('start-year-label');
     const endYearLabel = document.getElementById('end-year-label');
-    const chartsContainer = document.getElementById('charts-container');
+    
+    // Filtros
     const allFilters = document.querySelectorAll('select, input[name="limit_shp_filter"]');
-    const template = document.getElementById('vetor-options-template');
-    if (template) {
-        console.log("Template encontrado:", template);
-    } else {
-        console.error("Template NÃO encontrado!");
-        // Listar todos os scripts na página para diagnóstico
-        console.log("Scripts na página:", document.querySelectorAll('script'));
-    }
-    let geojsonLayer = null; // Variável para armazenar a camada do mapa
-
+    const classSearch = document.getElementById('class-search');
+    
+    // Elementos para mensagens
+    const loader = document.getElementById('loader');
+    const errorMessage = document.getElementById('error-message');
+    const noDataMessage = document.getElementById('no-data-message');
+    
+    // Áreas de conteúdo
+    const chartsArea = document.getElementById('charts-area');
+    const classCount = document.getElementById('class-count');
+    
+    // Template para cards
+    const chartCardTemplate = document.getElementById('chart-card-template').innerHTML;
+    const compiledTemplate = Handlebars.compile(chartCardTemplate);
+    
     // --- INICIALIZAÇÃO DE COMPONENTES ---
-
-    // Mapa de base da OpenStreetMap
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(mapContainer);
-
-    // Slider de tempo com a biblioteca noUiSlider
-    noUiSlider.create(timeSlider, {
-        start: [1985, 2024],
-        connect: true, // A barra entre as alças será colorida
-        step: 1,
-        range: {
-            'min': 1985,
-            'max': 2024
-        },
-        format: { // Garante que os valores sejam sempre números inteiros
-            to: value => Math.round(value),
-            from: value => Number(value)
-        }
-    });
-
-    // Atualiza os labels do ano em tempo real conforme o slider se move
-    timeSlider.noUiSlider.on('update', values => {
-        startYearLabel.textContent = values[0];
-        endYearLabel.textContent = values[1];
-    });
-
-    // Processa os vetores hierárquicos
+    
+    // 1. Inicialização do Mapa
+    if (mapContainer) {
+        map = L.map('map-container').setView([-10, -55], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Controles do mapa
+        document.getElementById('map-zoom-in').addEventListener('click', () => map.zoomIn());
+        document.getElementById('map-zoom-out').addEventListener('click', () => map.zoomOut());
+        document.getElementById('map-reset').addEventListener('click', () => {
+            if (currentBounds) {
+                map.fitBounds(currentBounds);
+            } else {
+                map.setView([-10, -55], 4);
+            }
+        });
+    }
+    
+    // 2. Inicialização do Slider de Tempo
+    if (timeSlider) {
+        noUiSlider.create(timeSlider, {
+            start: [1985, 2024],
+            connect: true,
+            step: 1,
+            range: {
+                'min': 1985,
+                'max': 2024
+            },
+            format: {
+                to: value => Math.round(value),
+                from: value => Number(value)
+            }
+        });
+        
+        timeSlider.noUiSlider.on('update', values => {
+            if (startYearLabel) startYearLabel.textContent = values[0];
+            if (endYearLabel) endYearLabel.textContent = values[1];
+        });
+    }
+    
+    // 3. Processar vetores hierárquicos
     try {
-        // Os vetores estão disponíveis globalmente via template?
         if (typeof window.vetoresData !== 'undefined') {
-            console.log("Dados de vetores disponíveis:", window.vetoresData);
             processVetorOptions(window.vetoresData);
         } else {
             console.warn("Dados de vetores não disponíveis (window.vetoresData)");
@@ -95,87 +82,291 @@ document.addEventListener('DOMContentLoaded', function () {
         console.error("Erro ao processar vetores:", e);
     }
     
-
-    // --- FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO ---
-
-    /**
-     * Coleta todos os filtros, busca os dados na API e dispara a atualização da tela.
-     * Esta é a função central que orquestra toda a interatividade.
-     */
-
-    // Adicione esta função para atualizar os gráficos das classes
+    // 4. Renderizar tabela de ganho/perda
+    renderGainLossTable();
+    
+    // 5. Ocultar loader inicialmente
+    if (loader) loader.classList.add('d-none');
+    
+    // --- FUNÇÕES AUXILIARES ---
+    
+    // Função para processar vetores hierárquicos
+    function processVetorOptions(vetores) {
+        const vetorSelect = document.getElementById('nomeVetor-filter');
+        if (!vetorSelect) return;
+        
+        // Limpa opções existentes (exceto a primeira)
+        while (vetorSelect.options.length > 1) {
+            vetorSelect.remove(1);
+        }
+        
+        const templateElement = document.getElementById('vetor-options-template');
+        if (!templateElement) return;
+        
+        try {
+            const template = Handlebars.compile(templateElement.innerHTML);
+            const html = template({ vetores: vetores });
+            vetorSelect.insertAdjacentHTML('beforeend', html);
+        } catch (error) {
+            console.error("Erro ao processar template Handlebars:", error);
+        }
+    }
+    
+    // Função para atualizar o mapa com novo GeoJSON
+    function updateMap(geojson) {
+        if (!map) return;
+        
+        // Remove camada anterior
+        if (geojsonLayer) {
+            map.removeLayer(geojsonLayer);
+        }
+        
+        // Adiciona nova camada
+        if (geojson) {
+            geojsonLayer = L.geoJSON(geojson, {
+                style: { 
+                    color: "#3498db", 
+                    weight: 2,
+                    fillOpacity: 0.1
+                }
+            }).addTo(map);
+            
+            currentBounds = geojsonLayer.getBounds();
+            map.fitBounds(currentBounds);
+        }
+    }
+    
+    // Função para atualizar os gráficos das classes
     function updateClassCharts(chartsData) {
-        console.log("Dados recebidos para gráficos:", chartsData);
         if (!chartsData || Object.keys(chartsData).length === 0) {
+            chartsArea.innerHTML = `
+                <div class="no-data-message animate-fade-in">
+                    <i class="fas fa-chart-bar fa-3x mb-3"></i>
+                    <h5>Nenhum dado disponível</h5>
+                    <p class="text-muted">Não foram encontrados dados para as classes selecionadas.</p>
+                </div>
+            `;
+            classCount.textContent = "0";
+            return;
+        }
+        // 1. Compilar o template Handlebars
+        const chartCardTemplate = document.getElementById('chart-card-template').innerHTML;
+        const compiledTemplate = Handlebars.compile(chartCardTemplate);
+        
+        // Preparar dados para o template
+        const classesForTemplate = [];
+        for (const [classId, chartData] of Object.entries(chartsData)) {
+            classesForTemplate.push({
+                id: classId,
+                name: chartData.class_name
+            });
+        }
+        
+        // Renderizar cards usando Handlebars
+        chartsArea.innerHTML = compiledTemplate({ classes: classesForTemplate });
+        classCount.textContent = classesForTemplate.length;
+        
+        // Para cada classe nos dados
+        for (const [classId, chartData] of Object.entries(chartsData)) {
+            const containerId = `chart-class-${classId}`;
+            const container = document.getElementById(containerId);
+            
+            if (!container) {
+                console.warn(`Contêiner não encontrado para classe ${classId} (${containerId})`);
+                continue;
+            }
+            
+            // Converter m² para km² (1 km² = 1,000,000 m²)
+            const areasha2 = chartData.series_data.map(area => area / 1000000);
+            
+            // Criar novo gráfico
+            const plotData = [{
+                x: chartData.years,
+                y: areasha2,
+                type: 'bar',
+                marker: { 
+                    color: chartData.color,
+                    line: {
+                        color: 'rgba(0,0,0,0.2)',
+                        width: 1
+                    }
+                },
+                hovertemplate: '<b>%{x}</b><br>%{y:.2f} km²<extra></extra>'
+            }];
+            
+            const layout = {
+                margin: { t: 10, l: 50, r: 20, b: 40 },
+                height: 300,
+                showlegend: false,
+                xaxis: {
+                    title: 'Ano',
+                    tickmode: 'linear',
+                    dtick: 5
+                },
+                yaxis: {
+                    title: 'Área (M ha)',
+                    tickformat: ',.2f'
+                },
+                hoverlabel: {
+                    bgcolor: 'rgba(255,255,255,0.9)',
+                    bordercolor: '#ddd',
+                    font: {
+                        color: '#333'
+                    }
+                }
+            };
+            
+            try {
+                Plotly.newPlot(container, plotData, layout, { 
+                    responsive: true,
+                    displayModeBar: false
+                });
+                
+                // Adicionar evento de download
+                const downloadBtn = container.closest('.chart-card').querySelector('.download-chart');
+                if (downloadBtn) {
+                    downloadBtn.addEventListener('click', () => {
+                        downloadChart(classId, chartData);
+                    });
+                }
+            } catch (error) {
+                console.error(`Erro ao renderizar gráfico para classe ${classId}:`, error);
+            }
+        }
+    }
+    
+    // Função para baixar dados do gráfico
+    function downloadChart(classId, chartData) {
+        // Criar CSV
+        let csv = "Ano,Área (km²)\n";
+        chartData.years.forEach((year, index) => {
+            const areaKm2 = chartData.series_data[index] / 1000000;
+            csv += `${year},${areaKm2.toFixed(2)}\n`;
+        });
+        
+        // Criar blob e link de download
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `dados_classe_${classId}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    // Função para atualizar o resumo estatístico
+    function updateStatisticalSummary(summaryData) {
+        const container = document.getElementById('statistical-summary-container');
+        if (!container) return;
+        
+        if (!summaryData || Object.keys(summaryData).length === 0) {
+            container.innerHTML = '<p class="text-muted text-center py-4">Nenhum dado estatístico disponível</p>';
             return;
         }
         
-        // Ordenar as classes por nome
-        const sortedClasses = Object.keys(chartsData).sort();
+        let html = '<div class="row">';
         
-        sortedClasses.forEach((className, index) => {
-            const chartId = `chart-class-${index + 1}`;
-            const chartElement = document.getElementById(chartId);
-            
-            if (chartElement) {
-                const chartData = chartsData[className];
-                
-                const plotData = [{
-                    x: chartData.years,
-                    y: chartData.series_data.map(area => area / 1000000),
-                    type: 'bar',
-                    marker: { color: chartData.color }
-                }];
-                
-                const layout = {
-                    title: { text: className, font: { size: 14 } },
-                    margin: { t: 40, l: 50, r: 20, b: 40 },
-                    xaxis: { title: 'Ano' },
-                    yaxis: { title: 'Área (km²)' },
-                    showlegend: false
-                };
-                
-                Plotly.newPlot(chartElement, plotData, layout, { 
-                    responsive: true, 
-                    displayModeBar: false 
-                });
-            }
-        });
+        for (const [key, value] of Object.entries(summaryData)) {
+            html += `
+                <div class="col-md-6 mb-2">
+                    <div class="card stat-card bg-light">
+                        <div class="card-body p-2">
+                            <strong>${key}:</strong> ${value.toLocaleString()} km²
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += '</div>';
+        container.innerHTML = html;
     }
-
-
-    // Atualize a função updateDashboard
-    async function updateDashboard() {
-        chartsContainer.innerHTML = `<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border" role="status"></div></div>`;
-        console.log("Atualizando dashboard...");
     
-        // Mostrar loader
-        document.getElementById('loader').classList.remove('d-none');
-        document.getElementById('error-message').classList.add('d-none');
+    // Função para renderizar a tabela de ganho/perda
+    function renderGainLossTable(gainLossData, startYear, endYear) {
+        const container = document.getElementById('gain-loss-container');
+        if (!container) return;
+        
+        // Se não houver dados, mostra uma mensagem
+        if (!gainLossData || gainLossData.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center p-4">Nenhum dado disponível para a tabela de ganho/perda</p>';
+            return;
+        }
+        
+        let html = `
+            <div class="table-responsive">
+                <table class="gain-loss-table">
+                    <thead>
+                        <tr>
+                            <th>Classe</th>
+                            <th>Área ${startYear} (milhões ha)</th>
+                            <th>Área ${endYear} (milhões ha)</th>
+                            <th>Diferença (milhões ha)</th>
+                            <th>% Ganho/Perda</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        gainLossData.forEach(item => {
+            // Converter áreas de m² para km²
+            const startKm2 = (item.start_area / 1000000).toFixed(2);
+            const endKm2 = (item.end_area / 1000000).toFixed(2);
+            const diffKm2 = (item.difference / 1000000).toFixed(2);
+            const percent = item.percent.toFixed(2);
+            
+            // Determinar a classe CSS com base no sinal da mudança percentual
+            const changeClass = item.percent > 0 ? 'positive' : 'negative';
+            
+            html += `
+                <tr>
+                    <td>${item.class_name}</td>
+                    <td>${startKm2}</td>
+                    <td>${endKm2}</td>
+                    <td>${diffKm2}</td>
+                    <td class="${changeClass}">${percent}%</td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+    }
+    
+    // --- FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO ---
+    
+    async function updateDashboard() {
+        // Mostrar loader e ocultar mensagens de erro
+        if (loader) loader.classList.remove('d-none');
+        if (errorMessage) errorMessage.classList.add('d-none');
+        if (noDataMessage) noDataMessage.classList.add('d-none');
+        
         try {
+            // Coletar parâmetros dos filtros
             const nomeVetorSelect = document.getElementById('nomeVetor-filter');
             let nomeVetorValue = nomeVetorSelect.value;
-            
-            // Se for um grupo, pega o valor selecionado
             if (nomeVetorValue === 'None') nomeVetorValue = null;
-            // Corrija os nomes dos parâmetros para combinar com o routes.py
+            
             const params = new URLSearchParams({
                 limit_shp: document.querySelector('input[name="limit_shp_filter"]:checked').value,
                 region: document.getElementById('region-filter').value,
-                // nomeVetor: document.getElementById('nomeVetor-filter').value,
                 nomeVetor: nomeVetorValue,
                 estado_name: document.getElementById('estado-filter').value,
                 start_year: timeSlider.noUiSlider.get()[0],
                 end_year: timeSlider.noUiSlider.get()[1]
             });
             
-            // Adicione logs para depuração
-            console.log(`Solicitando dados da API: /api/data?${params.toString()}`);            
+            // Fazer requisição para a API
             const response = await fetch(`/api/data?${params.toString()}`);
-
-            console.log("Status da resposta:", response.status);
             
-            // Adicione verificação de erro mais detalhada
+            // Verificar erros na resposta
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(`API response error: ${response.status} - ${errorText}`);
@@ -183,103 +374,78 @@ document.addEventListener('DOMContentLoaded', function () {
             
             const data = await response.json();
             console.log("Dados recebidos da API:", data);
+            
+            // Obter anos do slider
+            const startYear = timeSlider.noUiSlider.get()[0];
+            const endYear = timeSlider.noUiSlider.get()[1];
+            
+            // Verificar se há dados
+            if (!data.bar_chart_data || Object.keys(data.bar_chart_data).length === 0) {
+                if (noDataMessage) noDataMessage.classList.remove('d-none');
+            } else {
+                if (noDataMessage) noDataMessage.classList.add('d-none');
+            }
+            
+            // Atualizar componentes visuais
+            if (data.map_geojson) updateMap(data.map_geojson);
+            if (data.bar_chart_data) updateClassCharts(data.bar_chart_data);
+            if (data.statistical_summary) updateStatisticalSummary(data.statistical_summary);
 
-            updateMap(data.map_geojson);            
-            // Corrija o nome da propriedade (bar_chart_data em vez de charts_data)
-            updateChartsGrid(data.bar_chart_data);
-
-            // Esconder loader
-            document.getElementById('loader').classList.add('d-none');
-
+            // Atualizar tabela de ganho/perda com os novos dados
+            if (data.gain_loss_data) {
+                renderGainLossTable(data.gain_loss_data, startYear, endYear);
+            }
+            
         } catch (error) {
             console.error("Falha ao atualizar o dashboard:", error);
-            document.getElementById('loader').classList.add('d-none');
-            const errorMessage = document.getElementById('error-message');
-            errorMessage.textContent = `Erro: ${error.message}`;
-            errorMessage.classList.remove('d-none');
-        }
-    }
-
-
-    // --- FUNÇÕES DE ATUALIZAÇÃO DOS COMPONENTES VISUAIS ---
-
-    /**
-     * Limpa o mapa antigo e desenha a nova camada GeoJSON.
-     * @param {object | null} geojson - Os dados geográficos para o mapa.
-     */
-    function updateMap(geojson) {
-        console.log("Atualizando mapa...");
-        console.log("Recebido GeoJSON:", geojson ? "Válido" : "Nulo");
-
-        if (geojsonLayer) {
-            mapContainer.removeLayer(geojsonLayer);
-        }
-
-        if (geojson) {
-            try {
-                geojsonLayer = L.geoJSON(geojson, {
-                                        style: { color: "#3388ff", weight: 2} // Estilo simples para a camada
-                                    }).addTo(mapContainer);
-                // Ajusta o zoom e a centralização do mapa para a nova camada
-                mapContainer.fitBounds(geojsonLayer.getBounds());
-                console.log("Mapa atualizado com sucesso");
-            } catch (e) {
-                console.error("Erro ao desenhar GeoJSON no mapa:", e);
+            if (errorMessage) {
+                errorMessage.textContent = `Erro: ${error.message}`;
+                errorMessage.classList.remove('d-none');
             }
+        } finally {
+            // Esconder loader
+            if (loader) loader.classList.add('d-none');
         }
     }
-
-    /**
-     * Limpa a área de gráficos e cria uma nova grade, com um gráfico para cada classe.
-     * @param {object} chartsData - O objeto vindo do back-end com os dados de todos os gráficos.
-     */
-    function updateChartsGrid(chartsData) {
-        chartsContainer.innerHTML = ''; // Limpa o "loader" ou gráficos antigos
-        console.log("Atualizando gráficos de classe...");
-
-        // Se o objeto de dados estiver vazio, mostra uma mensagem amigável.
-        if (!chartsData || typeof chartsData !== 'object' || Object.keys(chartsData).length === 0) {
-            chartsContainer.innerHTML = '<p class="text-muted text-center p-5">Nenhum dado para exibir com os filtros selecionados.</p>';
-            console.warn("Nenhum dado de gráfico recebido");
-            return;
-        }
-
-        // Itera sobre cada classe de cobertura recebida do back-end.
-        for (const className in chartsData) {
-            const chartData = chartsData[className];
-            const chartDiv = document.createElement('div');
-            chartsContainer.appendChild(chartDiv);
-
-            // Prepara os dados e o layout para a biblioteca Plotly.
-            const plotData = [{
-                x: chartData.years,
-                y: chartData.series_data.map(area => area / 1000000), // Converte m² para km²
-                type: 'bar',
-                marker: { color: chartData.color } // Usa a cor enviada pelo back-end
-            }];
-
-            const layout = {
-                title: { text: chartData.class_name, font: { size: 14 }},
-                margin: { l: 60, r: 20, t: 40, b: 40 },
-                xaxis: { title: 'Ano', titlefont: {size: 12} },
-                yaxis: { title: 'Área (km²)', titlefont: {size: 12}},
-                showlegend: false
-            };
-            
-            // Cria o gráfico no div que acabamos de adicionar.
-            Plotly.newPlot(chartDiv, plotData, layout, { responsive: true, displayModeBar: false });
-        }
-    }
-
-
-    // --- EVENT LISTENERS (GATILHOS DE ATUALIZAÇÃO) ---
-
-    // Adiciona um gatilho para cada filtro. Quando o valor de um deles muda,
-    // a função updateDashboard é chamada.
-    allFilters.forEach(el => el.addEventListener('change', updateDashboard));
-    timeSlider.noUiSlider.on('change', updateDashboard);
     
-    // --- CARGA INICIAL ---
-    // Chama a função uma vez quando a página carrega para mostrar os dados iniciais.
+    // --- EVENT LISTENERS ---
+    
+    // Adicionar listeners para todos os filtros
+    allFilters.forEach(el => el.addEventListener('change', updateDashboard));
+    
+    // Adicionar listener para o slider
+    if (timeSlider && timeSlider.noUiSlider) {
+        timeSlider.noUiSlider.on('change', updateDashboard);
+    }
+    
+    // Pesquisa de classes
+    if (classSearch) {
+        classSearch.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const cards = chartsArea.querySelectorAll('.chart-card');
+            
+            let visibleCount = 0;
+            
+            cards.forEach(card => {
+                const header = card.querySelector('.card-header').textContent.toLowerCase();
+                if (header.includes(searchTerm)) {
+                    card.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            
+            classCount.textContent = visibleCount;
+        });
+    }
+    
+    // Botão de exportar
+    document.getElementById('export-btn').addEventListener('click', function() {
+        // Implementar exportação completa dos dados
+        alert('Exportação de dados será implementada em breve!');
+    });
+    
+    // --- INICIALIZAÇÃO DO DASHBOARD ---
     updateDashboard();
 });
