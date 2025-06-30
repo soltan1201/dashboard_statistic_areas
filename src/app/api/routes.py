@@ -48,6 +48,48 @@ for name, path in GEOJSON_PATHS.items():
 
 print(f" We have loaded {len(list(gdfs.keys()))} maps ")
 
+# Adicione esta função auxiliar no routes.py
+def calculate_gain_loss(df, classes, start_year, end_year, class_info_df):
+    results = []
+
+    # Criar um mapeamento de ID para nome da classe
+    name_map = dict(zip(class_info_df['code_id'], class_info_df['class_name']))
+    
+    for classe in classes:
+        # Filtrar dados para a classe específica
+        class_data = df[df['classe'] == classe]
+
+        # Obter o nome da classe
+        class_name = name_map.get(classe, f"Classe {classe}")
+        
+        # Obter área no ano inicial
+        start_area = class_data[class_data['year'] == start_year]['area'].sum()
+        
+        # Obter área no ano final
+        end_area = class_data[class_data['year'] == end_year]['area'].sum()
+        
+        # Calcular diferença
+        diff = end_area - start_area
+        
+        # Calcular porcentagem (evitar divisão por zero)
+        if start_area != 0:
+            percent = (diff / start_area) * 100
+        else:
+            percent = 0.0   #if diff == 0 else (float('inf') if diff > 0 else float('-inf'))
+        
+        results.append({
+            'class_id': classe,
+            'class_name': class_name,  # Adicionar o nome da classe
+            'start_area': start_area,
+            'end_area': end_area,
+            'difference': diff,
+            'percent': percent
+        })
+    
+    return results
+
+
+
 # 2. Define a rota /data dentro do Blueprint. A URL final será /api/data
 @api_bp.route('/data')
 def get_data():
@@ -115,7 +157,7 @@ def get_data():
     data_for_charts = df.groupby(['year', 'classe'])['area'].sum().reset_index()
     data_for_charts['classe'] = data_for_charts['classe'].astype(int)
     data_for_charts['year'] = data_for_charts['year'].astype(int)
-    print(tabulate(data_for_charts.head(5), headers = 'keys', tablefmt = 'psql', floatfmt=".2f"))
+    # print(tabulate(data_for_charts.head(5), headers = 'keys', tablefmt = 'psql', floatfmt=".2f"))
 
     # 4. Lógica de Geoprocessamento (Intersect)
     # Começa com o limite principal
@@ -156,10 +198,10 @@ def get_data():
     # Cria um mapa de ID -> Nome da Classe
     name_map = pd.Series(class_info_df.class_name.values, index=class_info_df.code_id).to_dict()
     name_map = dict(name_map)
-    print("ver a tabela de classes v1 ", name_map)
+    # print("ver a tabela de classes v1 ", name_map)
     # Cria um mapa de ID -> Cor Hexadecimal
     color_map = pd.Series(class_info_df.hex_color.values, index=class_info_df.code_id).to_dict()
-    print("ver a tabela de color_map v1 ", color_map)
+    # print("ver a tabela de color_map v1 ", color_map)
     charts_data = {}
     years = sorted(data_for_charts['year'].unique().tolist())
 
@@ -167,30 +209,30 @@ def get_data():
     # # 3. (Sugestão 2) Busca os nomes das classes para os títulos (ClassInfo)
     info_area_results = LimitArea.query.all()    
     dict_area_limits = {c.state_limit: c.area for c in info_area_results}
-    print("ver a tabela de LimitArea  ", dict_area_limits)
+    # print("ver a tabela de LimitArea  ", dict_area_limits)
 
     dict_area_exp = {}
     dict_area_exp[limit_shp] = dict_area_limits[limit_shp]
-    if estado_name:
+    if str(estado_name).upper() != 'NONE':
         dict_area_exp[str(estado_name).upper()] = dict_area_limits[str(estado_name).upper()]
         area_estado = data_for_charts[data_for_charts['year'] == int(end_year)]['area'].sum()
         area_estado = round(float(area_estado), 2)
         dict_area_exp[str(estado_name).upper() + '_interna'] = area_estado
 
-    print("ver a tabela de LimitArea final ", dict_area_exp)
+    # print("ver a tabela de LimitArea final ", dict_area_exp)
 
     for classe_id, group in data_for_charts.groupby('classe'):
         # --- MUDANÇA 2: Estrutura de dados simplificada ---
-        if classe_id != 0:
+        if classe_id != 0 and classe_id != 27:
             # classe_id = 27
             class_name = name_map[classe_id]
-            print(f" classe Id == {classe_id}  <> {class_name}")      
+            # print(f" classe Id == {classe_id}  <> {class_name}")     
             
             class_color = color_map.get(classe_id, '#cccccc') # Usa cinza como cor padrão
 
             series_data = group.set_index('year')['area'].reindex(years, fill_value=0)
 
-            charts_data[class_name] = {
+            charts_data[classe_id] = {
                 'years': years,
                 'series_data': series_data.tolist(),
                 'color': class_color,
@@ -201,6 +243,9 @@ def get_data():
     # Aqui você adicionaria a lógica para a tabela de Ganho/Perda e o Sankey
     # A lógica do Sankey precisa de dados de 2 anos específicos.
     # A de Ganho/Perda precisa comparar o primeiro e último ano do intervalo.
+    gain_loss_classes = [3,4,12,15,20,21,23,24,25,39,41,46,48,62]
+    gain_loss_data = calculate_gain_loss(df, gain_loss_classes, start_year, end_year, class_info_df)
+    print(gain_loss_data[:3])
 
     # 6. Retornar JSON para o front-end
     return jsonify({
@@ -208,5 +253,5 @@ def get_data():
         'bar_chart_data': charts_data,
         'statistical_summary': dict_area_exp,
         # 'sankey_data': sankey_data,
-        # 'gain_loss_data': gain_loss_data
+        'gain_loss_data': gain_loss_data
     })
