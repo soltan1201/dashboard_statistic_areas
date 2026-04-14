@@ -52,7 +52,7 @@ pip install scikit-learn tqdm tabulate
 O arquivo `src/.env` já está incluído no repositório com valores padrão para desenvolvimento:
 
 ```dotenv
-SECRET_KEY='7e86e14ec0f80183e76419acc8dd66082d76eaa2454fad58'
+SECRET_KEY='##############################################'
 FLASK_APP=run.py
 FLASK_DEBUG=1
 ```
