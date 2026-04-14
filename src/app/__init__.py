@@ -82,29 +82,6 @@ def create_app(config_class=Config):
     @app.route('/')
     def index():
         from flask import render_template
-        # --- ADIÇÃO: Definimos as listas de opções para os filtros ---
-        # Usamos set() para remover duplicatas e sorted() para ordenar alfabeticamente
-        
-        estados_options = sorted([
-            'MARANHÃO', 'PIAUÍ', 'CEARÁ', 'RIO GRANDE DO NORTE', 'PARAÍBA', 
-            'PERNAMBUCO', 'ALAGOAS', 'SERGIPE', 'BAHIA', 'MINAS GERAIS', 'ESPÍRITO SANTO'
-        ])
-
-        region_options = sorted(list(set([
-            'Assent-Br', 'res-biosf', 'prioridade-conservacao-V2', 'bacia-sao-francisco', 
-            'prioridade-conservacao-V1', 'meso-RH', 'transposicao-cbhsf', 'macro-RH', 
-            'UnidCons-S', 'tis-port', 'micro-RH', 'semiarido', 'areaQuil', 
-            'nucleos-desert', 'energias-renovaveis', 'matopiba', 'micro-RH'
-        ])))
-
-        # Passamos as listas para o template no momento da renderização
-        # Passa os mesmos dados para JS
-        return render_template(
-            'index.html', 
-            estados=estados_options,
-            regions=region_options,
-            vetores=dict_nome_subregions,    
-            vetores_data=dict_nome_subregions
-        )
+        return render_template('index.html')
 
     return app

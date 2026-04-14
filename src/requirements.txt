@@ -21,7 +21,10 @@ pyproj==3.7.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
 pytz==2025.2
+scikit-learn>=1.4
 scipy==1.15.3
+tabulate>=0.9
+tqdm>=4.66
 shapely==2.1.1
 six==1.17.0
 SQLAlchemy==2.0.41

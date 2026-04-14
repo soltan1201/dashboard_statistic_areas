@@ -1,451 +1,521 @@
-document.addEventListener('DOMContentLoaded', function () {
-    // --- SELETORES DE ELEMENTOS ---
-    // Mapa
-    const mapContainer = document.getElementById('map-container');
-    let map = null;
-    let geojsonLayer = null;
-    let currentBounds = null;
-    
-    // Slider de tempo
-    const timeSlider = document.getElementById('time-slider');
-    const startYearLabel = document.getElementById('start-year-label');
-    const endYearLabel = document.getElementById('end-year-label');
-    
-    // Filtros
-    const allFilters = document.querySelectorAll('select, input[name="limit_shp_filter"]');
-    const classSearch = document.getElementById('class-search');
-    
-    // Elementos para mensagens
-    const loader = document.getElementById('loader');
-    const errorMessage = document.getElementById('error-message');
-    const noDataMessage = document.getElementById('no-data-message');
-    
-    // Áreas de conteúdo
-    const chartsArea = document.getElementById('charts-area');
-    const classCount = document.getElementById('class-count');
-    
-    // Template para cards
-    const chartCardTemplate = document.getElementById('chart-card-template').innerHTML;
-    const compiledTemplate = Handlebars.compile(chartCardTemplate);
-    
-    // --- INICIALIZAÇÃO DE COMPONENTES ---
-    
-    // 1. Inicialização do Mapa
-    if (mapContainer) {
-        map = L.map('map-container').setView([-10, -55], 4);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
+/* main.js — MapBiomas Caatinga Dashboard v2 */
+'use strict';
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 1. ESTADO GLOBAL
+    // ─────────────────────────────────────────────────────────────────────
+    let map        = null;
+    let geojsonLyr = null;
+    let lastData   = null;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 2. MAPA LEAFLET
+    // ─────────────────────────────────────────────────────────────────────
+    const mapEl = document.getElementById('map-container');
+    if (mapEl) {
+        map = L.map('map-container', { zoomControl: true }).setView([-9.5, -40], 5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com/">CartoDB</a>',
+            maxZoom: 18
         }).addTo(map);
-        
-        // Controles do mapa
-        document.getElementById('map-zoom-in').addEventListener('click', () => map.zoomIn());
-        document.getElementById('map-zoom-out').addEventListener('click', () => map.zoomOut());
         document.getElementById('map-reset').addEventListener('click', () => {
-            if (currentBounds) {
-                map.fitBounds(currentBounds);
-            } else {
-                map.setView([-10, -55], 4);
-            }
+            if (geojsonLyr) map.fitBounds(geojsonLyr.getBounds(), { padding: [10, 10] });
+            else map.setView([-9.5, -40], 5);
         });
     }
-    
-    // 2. Inicialização do Slider de Tempo
-    if (timeSlider) {
-        noUiSlider.create(timeSlider, {
-            start: [1985, 2024],
-            connect: true,
-            step: 1,
-            range: {
-                'min': 1985,
-                'max': 2024
-            },
-            format: {
-                to: value => Math.round(value),
-                from: value => Number(value)
-            }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 3. SLIDER TEMPORAL
+    // ─────────────────────────────────────────────────────────────────────
+    const sliderEl = document.getElementById('time-slider');
+    if (sliderEl) {
+        noUiSlider.create(sliderEl, {
+            start: [1985, 2025], connect: true, step: 1,
+            range: { min: 1985, max: 2025 },
+            format: { to: v => Math.round(v), from: v => +v }
         });
-        
-        timeSlider.noUiSlider.on('update', values => {
-            if (startYearLabel) startYearLabel.textContent = values[0];
-            if (endYearLabel) endYearLabel.textContent = values[1];
+        sliderEl.noUiSlider.on('update', ([s, e]) => {
+            document.getElementById('start-year-label').textContent = s;
+            document.getElementById('end-year-label').textContent   = e;
         });
     }
-    
-    // 3. Processar vetores hierárquicos
-    try {
-        if (typeof window.vetoresData !== 'undefined') {
-            processVetorOptions(window.vetoresData);
-        } else {
-            console.warn("Dados de vetores não disponíveis (window.vetoresData)");
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 4. VISIBILIDADE JANELA / VERSÃO CONFORME CAMADA
+    // ─────────────────────────────────────────────────────────────────────
+    const layerSel   = document.getElementById('layer-filter');
+    const groupJan   = document.getElementById('group-janela');
+    const groupVers  = document.getElementById('group-version');
+    const versInput  = document.getElementById('version-filter');
+    const COLL_KEYS  = ['Map71', 'Map80', 'Map90', 'Map100'];
+
+    function updateLayerControls() {
+        const opt = layerSel.selectedOptions[0];
+        const needsJanela = opt && opt.dataset.needsJanela === '1';
+        const isCollection = COLL_KEYS.includes(layerSel.value);
+
+        groupJan.classList.toggle('d-none', !needsJanela);
+        // Para coleções a versão é fixa (10) — oculta input
+        groupVers.classList.toggle('d-none', isCollection);
+        if (isCollection) {
+            versInput.value = opt.dataset.version || '10';
         }
-    } catch (e) {
-        console.error("Erro ao processar vetores:", e);
     }
-    
-    // 4. Renderizar tabela de ganho/perda
-    renderGainLossTable();
-    
-    // 5. Ocultar loader inicialmente
-    if (loader) loader.classList.add('d-none');
-    
-    // --- FUNÇÕES AUXILIARES ---
-    
-    // Função para processar vetores hierárquicos
-    function processVetorOptions(vetores) {
-        const vetorSelect = document.getElementById('nomeVetor-filter');
-        if (!vetorSelect) return;
-        
-        // Limpa opções existentes (exceto a primeira)
-        while (vetorSelect.options.length > 1) {
-            vetorSelect.remove(1);
-        }
-        
-        const templateElement = document.getElementById('vetor-options-template');
-        if (!templateElement) return;
-        
+    layerSel.addEventListener('change', updateLayerControls);
+    updateLayerControls();
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 5. CARREGAR LISTA DE BACIAS
+    // ─────────────────────────────────────────────────────────────────────
+    async function loadBacias() {
         try {
-            const template = Handlebars.compile(templateElement.innerHTML);
-            const html = template({ vetores: vetores });
-            vetorSelect.insertAdjacentHTML('beforeend', html);
-        } catch (error) {
-            console.error("Erro ao processar template Handlebars:", error);
-        }
-    }
-    
-    // Função para atualizar o mapa com novo GeoJSON
-    function updateMap(geojson) {
-        if (!map) return;
-        
-        // Remove camada anterior
-        if (geojsonLayer) {
-            map.removeLayer(geojsonLayer);
-        }
-        
-        // Adiciona nova camada
-        if (geojson) {
-            geojsonLayer = L.geoJSON(geojson, {
-                style: { 
-                    color: "#3498db", 
-                    weight: 2,
-                    fillOpacity: 0.1
-                }
-            }).addTo(map);
-            
-            currentBounds = geojsonLayer.getBounds();
-            map.fitBounds(currentBounds);
-        }
-    }
-    
-    // Função para atualizar os gráficos das classes
-    function updateClassCharts(chartsData) {
-        if (!chartsData || Object.keys(chartsData).length === 0) {
-            chartsArea.innerHTML = `
-                <div class="no-data-message animate-fade-in">
-                    <i class="fas fa-chart-bar fa-3x mb-3"></i>
-                    <h5>Nenhum dado disponível</h5>
-                    <p class="text-muted">Não foram encontrados dados para as classes selecionadas.</p>
-                </div>
-            `;
-            classCount.textContent = "0";
-            return;
-        }
-        // 1. Compilar o template Handlebars
-        const chartCardTemplate = document.getElementById('chart-card-template').innerHTML;
-        const compiledTemplate = Handlebars.compile(chartCardTemplate);
-        
-        // Preparar dados para o template
-        const classesForTemplate = [];
-        for (const [classId, chartData] of Object.entries(chartsData)) {
-            classesForTemplate.push({
-                id: classId,
-                name: chartData.class_name
+            const res = await fetch('/api/bacias');
+            const lst = await res.json();
+            const sel = document.getElementById('bacia-filter');
+            lst.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b;
+                opt.textContent = b;
+                sel.appendChild(opt);
             });
-        }
-        
-        // Renderizar cards usando Handlebars
-        chartsArea.innerHTML = compiledTemplate({ classes: classesForTemplate });
-        classCount.textContent = classesForTemplate.length;
-        
-        // Para cada classe nos dados
-        for (const [classId, chartData] of Object.entries(chartsData)) {
-            const containerId = `chart-class-${classId}`;
-            const container = document.getElementById(containerId);
-            
-            if (!container) {
-                console.warn(`Contêiner não encontrado para classe ${classId} (${containerId})`);
-                continue;
-            }
-            
-            // Converter m² para km² (1 km² = 1,000,000 m²)
-            const areasha2 = chartData.series_data.map(area => area / 1000000);
-            
-            // Criar novo gráfico
-            const plotData = [{
-                x: chartData.years,
-                y: areasha2,
-                type: 'bar',
-                marker: { 
-                    color: chartData.color,
-                    line: {
-                        color: 'rgba(0,0,0,0.2)',
-                        width: 1
-                    }
-                },
-                hovertemplate: '<b>%{x}</b><br>%{y:.2f} km²<extra></extra>'
-            }];
-            
-            const layout = {
-                margin: { t: 10, l: 50, r: 20, b: 40 },
-                height: 300,
-                showlegend: false,
-                xaxis: {
-                    title: 'Ano',
-                    tickmode: 'linear',
-                    dtick: 5
-                },
-                yaxis: {
-                    title: 'Área (M ha)',
-                    tickformat: ',.2f'
-                },
-                hoverlabel: {
-                    bgcolor: 'rgba(255,255,255,0.9)',
-                    bordercolor: '#ddd',
-                    font: {
-                        color: '#333'
-                    }
-                }
-            };
-            
-            try {
-                Plotly.newPlot(container, plotData, layout, { 
-                    responsive: true,
-                    displayModeBar: false
-                });
-                
-                // Adicionar evento de download
-                const downloadBtn = container.closest('.chart-card').querySelector('.download-chart');
-                if (downloadBtn) {
-                    downloadBtn.addEventListener('click', () => {
-                        downloadChart(classId, chartData);
-                    });
-                }
-            } catch (error) {
-                console.error(`Erro ao renderizar gráfico para classe ${classId}:`, error);
-            }
+        } catch (e) {
+            console.warn('Não carregou bacias:', e);
         }
     }
-    
-    // Função para baixar dados do gráfico
-    function downloadChart(classId, chartData) {
-        // Criar CSV
-        let csv = "Ano,Área (km²)\n";
-        chartData.years.forEach((year, index) => {
-            const areaKm2 = chartData.series_data[index] / 1000000;
-            csv += `${year},${areaKm2.toFixed(2)}\n`;
-        });
-        
-        // Criar blob e link de download
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `dados_classe_${classId}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    loadBacias();
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 6. PARÂMETROS ATUAIS
+    // ─────────────────────────────────────────────────────────────────────
+    function getParams() {
+        const [sy, ey] = sliderEl ? sliderEl.noUiSlider.get() : [1985, 2025];
+        const numClass = document.querySelector('input[name="num_class"]:checked')?.value || '10';
+        const janElem  = document.querySelector('input[name="janela"]:checked');
+        const lk       = layerSel.value;
+        const needsJ   = layerSel.selectedOptions[0]?.dataset.needsJanela === '1';
+        return {
+            bacia:      document.getElementById('bacia-filter').value,
+            layer_key:  lk,
+            version:    versInput.value,
+            num_class:  numClass,
+            janela:     (needsJ && janElem) ? janElem.value : '',
+            start_year: sy,
+            end_year:   ey,
+            include_cm: document.getElementById('toggle-cm').checked ? 'true' : 'false',
+        };
     }
-    
-    // Função para atualizar o resumo estatístico
-    function updateStatisticalSummary(summaryData) {
-        const container = document.getElementById('statistical-summary-container');
-        if (!container) return;
-        
-        if (!summaryData || Object.keys(summaryData).length === 0) {
-            container.innerHTML = '<p class="text-muted text-center py-4">Nenhum dado estatístico disponível</p>';
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 7. RENDERIZADORES
+    // ─────────────────────────────────────────────────────────────────────
+
+    /* 7a. Mapa */
+    function renderMap(geojson) {
+        if (!map) return;
+        if (geojsonLyr) { map.removeLayer(geojsonLyr); geojsonLyr = null; }
+        if (!geojson) return;
+        geojsonLyr = L.geoJSON(geojson, {
+            style: { color: '#1f8d49', weight: 2, fillOpacity: 0.08 }
+        }).addTo(map);
+        map.fitBounds(geojsonLyr.getBounds(), { padding: [10, 10] });
+    }
+
+    /* 7b. Painel de Acurácia */
+    function renderAccuracy(acc, layerKey) {
+        const el = document.getElementById('accuracy-panel');
+        if (!el) return;
+        const badge = document.getElementById('acc-layer-badge');
+        if (badge) badge.textContent = layerKey;
+
+        if (!acc || acc.selected?.global == null) {
+            el.innerHTML = '<p class="text-muted text-center py-4 small">Sem dados de acurácia</p>';
             return;
         }
-        
-        let html = '<div class="row">';
-        
-        for (const [key, value] of Object.entries(summaryData)) {
-            html += `
-                <div class="col-md-6 mb-2">
-                    <div class="card stat-card bg-light">
-                        <div class="card-body p-2">
-                            <strong>${key}:</strong> ${value.toLocaleString()} km²
-                        </div>
-                    </div>
-                </div>
-            `;
+
+        const sel     = acc.selected;
+        const comp    = acc.comparison;
+        const col100  = acc.col100?.global;
+        const globPct = sel.global != null ? sel.global.toFixed(1) : '—';
+
+        let trendHtml = '';
+        if (comp) {
+            const dir  = comp.direction === 'up';
+            const cls  = dir ? 'trend-up' : 'trend-down';
+            const icon = dir ? 'fa-arrow-up' : 'fa-arrow-down';
+            trendHtml = `<span class="trend-badge ${cls}">
+                <i class="fas ${icon} me-1"></i>${Math.abs(comp.diff).toFixed(2)}% vs Col 10
+            </span>`;
         }
-        
-        html += '</div>';
-        container.innerHTML = html;
-    }
-    
-    // Função para renderizar a tabela de ganho/perda
-    function renderGainLossTable(gainLossData, startYear, endYear) {
-        const container = document.getElementById('gain-loss-container');
-        if (!container) return;
-        
-        // Se não houver dados, mostra uma mensagem
-        if (!gainLossData || gainLossData.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center p-4">Nenhum dado disponível para a tabela de ganho/perda</p>';
-            return;
-        }
-        
-        let html = `
-            <div class="table-responsive">
-                <table class="gain-loss-table">
-                    <thead>
-                        <tr>
-                            <th>Classe</th>
-                            <th>Área ${startYear} (milhões ha)</th>
-                            <th>Área ${endYear} (milhões ha)</th>
-                            <th>Diferença (milhões ha)</th>
-                            <th>% Ganho/Perda</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        gainLossData.forEach(item => {
-            // Converter áreas de m² para km²
-            const startKm2 = (item.start_area / 1000000).toFixed(2);
-            const endKm2 = (item.end_area / 1000000).toFixed(2);
-            const diffKm2 = (item.difference / 1000000).toFixed(2);
-            const percent = item.percent.toFixed(2);
-            
-            // Determinar a classe CSS com base no sinal da mudança percentual
-            const changeClass = item.percent > 0 ? 'positive' : 'negative';
-            
-            html += `
-                <tr>
-                    <td>${item.class_name}</td>
-                    <td>${startKm2}</td>
-                    <td>${endKm2}</td>
-                    <td>${diffKm2}</td>
-                    <td class="${changeClass}">${percent}%</td>
-                </tr>
-            `;
-        });
-        
-        html += `
-                    </tbody>
-                </table>
+
+        const col100Html = col100 != null
+            ? `<div class="acc-compare-row"><span>Col 10 (ref)</span><strong>${col100.toFixed(1)}%</strong></div>`
+            : '';
+
+        el.innerHTML = `
+            <div class="acc-global-value">${globPct}<span class="acc-unit">%</span></div>
+            <div class="text-center mb-2">${trendHtml}</div>
+            ${col100Html}
+            <hr class="my-2">
+            <div class="acc-metrics-grid">
+                <div class="acc-metric"><span>Qtd. Diss.</span><strong>${sel.quantity_diss?.toFixed(2) ?? '—'}%</strong></div>
+                <div class="acc-metric"><span>Aloc. Diss.</span><strong>${sel.alloc_diss?.toFixed(2) ?? '—'}%</strong></div>
+                <div class="acc-metric"><span>Exchange</span><strong>${sel.exchange?.toFixed(2) ?? '—'}%</strong></div>
+                <div class="acc-metric"><span>Shift</span><strong>${sel.shift?.toFixed(2) ?? '—'}%</strong></div>
             </div>
         `;
-        
-        container.innerHTML = html;
     }
-    
-    // --- FUNÇÃO PRINCIPAL DE ATUALIZAÇÃO ---
-    
-    async function updateDashboard() {
-        // Mostrar loader e ocultar mensagens de erro
-        if (loader) loader.classList.remove('d-none');
-        if (errorMessage) errorMessage.classList.add('d-none');
-        if (noDataMessage) noDataMessage.classList.add('d-none');
-        
-        try {
-            // Coletar parâmetros dos filtros
-            const nomeVetorSelect = document.getElementById('nomeVetor-filter');
-            let nomeVetorValue = nomeVetorSelect.value;
-            if (nomeVetorValue === 'None') nomeVetorValue = null;
-            
-            const params = new URLSearchParams({
-                limit_shp: document.querySelector('input[name="limit_shp_filter"]:checked').value,
-                region: document.getElementById('region-filter').value,
-                nomeVetor: nomeVetorValue,
-                estado_name: document.getElementById('estado-filter').value,
-                start_year: timeSlider.noUiSlider.get()[0],
-                end_year: timeSlider.noUiSlider.get()[1]
-            });
-            
-            // Fazer requisição para a API
-            const response = await fetch(`/api/data?${params.toString()}`);
-            
-            // Verificar erros na resposta
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API response error: ${response.status} - ${errorText}`);
-            }
-            
-            const data = await response.json();
-            console.log("Dados recebidos da API:", data);
-            
-            // Obter anos do slider
-            const startYear = timeSlider.noUiSlider.get()[0];
-            const endYear = timeSlider.noUiSlider.get()[1];
-            
-            // Verificar se há dados
-            if (!data.bar_chart_data || Object.keys(data.bar_chart_data).length === 0) {
-                if (noDataMessage) noDataMessage.classList.remove('d-none');
-            } else {
-                if (noDataMessage) noDataMessage.classList.add('d-none');
-            }
-            
-            // Atualizar componentes visuais
-            if (data.map_geojson) updateMap(data.map_geojson);
-            if (data.bar_chart_data) updateClassCharts(data.bar_chart_data);
-            if (data.statistical_summary) updateStatisticalSummary(data.statistical_summary);
 
-            // Atualizar tabela de ganho/perda com os novos dados
-            if (data.gain_loss_data) {
-                renderGainLossTable(data.gain_loss_data, startYear, endYear);
-            }
-            
-        } catch (error) {
-            console.error("Falha ao atualizar o dashboard:", error);
-            if (errorMessage) {
-                errorMessage.textContent = `Erro: ${error.message}`;
-                errorMessage.classList.remove('d-none');
-            }
-        } finally {
-            // Esconder loader
-            if (loader) loader.classList.add('d-none');
-        }
-    }
-    
-    // --- EVENT LISTENERS ---
-    
-    // Adicionar listeners para todos os filtros
-    allFilters.forEach(el => el.addEventListener('change', updateDashboard));
-    
-    // Adicionar listener para o slider
-    if (timeSlider && timeSlider.noUiSlider) {
-        timeSlider.noUiSlider.on('change', updateDashboard);
-    }
-    
-    // Pesquisa de classes
-    if (classSearch) {
-        classSearch.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const cards = chartsArea.querySelectorAll('.chart-card');
-            
-            let visibleCount = 0;
-            
-            cards.forEach(card => {
-                const header = card.querySelector('.card-header').textContent.toLowerCase();
-                if (header.includes(searchTerm)) {
-                    card.style.display = 'block';
-                    visibleCount++;
-                } else {
-                    card.style.display = 'none';
-                }
+    /* 7c. Gráfico de acurácia por ano — camada selecionada vs Col 10 */
+    function renderAccTimeseries(byYearSelected, byYearCol100, layerKey) {
+        const el = document.getElementById('acc-timeseries');
+        if (!el) return;
+
+        const traces = [];
+
+        // Col 10 (referência fixa) — linha cinza pontilhada
+        if (byYearCol100 && Object.keys(byYearCol100).length > 0) {
+            const yrs = Object.keys(byYearCol100).map(Number).sort((a, b) => a - b);
+            traces.push({
+                x: yrs, y: yrs.map(y => byYearCol100[y]),
+                type: 'scatter', mode: 'lines',
+                name: 'Col 10',
+                line: { color: '#2980b9', width: 1.5, dash: 'dot' },
+                hovertemplate: '<b>Col 10</b> %{x}: %{y:.1f}%<extra></extra>',
             });
-            
-            classCount.textContent = visibleCount;
+        }
+
+        // Camada selecionada — linha verde sólida
+        if (byYearSelected && Object.keys(byYearSelected).length > 0) {
+            const yrs = Object.keys(byYearSelected).map(Number).sort((a, b) => a - b);
+            traces.push({
+                x: yrs, y: yrs.map(y => byYearSelected[y]),
+                type: 'scatter', mode: 'lines+markers',
+                name: layerKey || 'Selecionada',
+                line: { color: '#1f8d49', width: 2 },
+                marker: { color: '#1f8d49', size: 5 },
+                hovertemplate: `<b>${layerKey || 'Sel.'}</b> %{x}: %{y:.1f}%<extra></extra>`,
+            });
+        }
+
+        if (traces.length === 0) {
+            el.innerHTML = '<p class="text-muted text-center p-3 small">Sem dados por ano</p>';
+            return;
+        }
+
+        Plotly.react(el, traces, {
+            margin: { t: 5, l: 45, r: 10, b: 30 },
+            height: 170,
+            yaxis: { title: 'Acurácia (%)', range: [0, 100], ticksuffix: '%' },
+            xaxis: { dtick: 5 },
+            legend: { orientation: 'h', x: 0, y: 1.15, font: { size: 10 } },
+            plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+        }, { responsive: true, displayModeBar: false });
+    }
+
+    /* 7d. Gráficos de área por classe */
+    function renderAreaCharts(areaCharts, collectionsCompare, layerKey) {
+        const container = document.getElementById('charts-area');
+        const countEl   = document.getElementById('class-count');
+        if (!container) return;
+
+        if (!areaCharts || Object.keys(areaCharts).length === 0) {
+            container.innerHTML = '<div class="col-12 text-center text-muted py-4">Sem dados de área</div>';
+            if (countEl) countEl.textContent = '0';
+            return;
+        }
+
+        // Cor da camada selecionada
+        const selColor = window.LAYER_COLORS?.[layerKey] || '#c0392b';
+        const dotEl    = document.getElementById('legend-selected-dot');
+        const lblEl    = document.getElementById('legend-selected-label');
+        if (dotEl) dotEl.style.background = selColor;
+        if (lblEl) lblEl.textContent = layerKey;
+
+        const classIds = Object.keys(areaCharts).map(Number).sort((a, b) => a - b);
+        if (countEl) countEl.textContent = classIds.length;
+
+        container.innerHTML = '';
+        classIds.forEach(clsId => {
+            const d    = areaCharts[clsId];
+            const colId = `chart-cls-${clsId}`;
+            const col   = document.createElement('div');
+            col.className = 'col-xl-6 col-md-6';
+            col.innerHTML = `
+                <div class="dash-card area-chart-card">
+                    <div class="dash-card-header dash-card-header--class" style="border-left:4px solid ${d.hex_color}">
+                        <span class="cls-dot" style="background:${d.hex_color}"></span>
+                        <span class="text-truncate">${d.class_name}</span>
+                    </div>
+                    <div class="dash-card-body p-1">
+                        <div id="${colId}" style="height:220px;"></div>
+                    </div>
+                </div>`;
+            container.appendChild(col);
+
+            // Traces: uma trace por coleção + trace camada selecionada
+            const traces = [];
+
+            // Coleções anteriores
+            ['Map71', 'Map80', 'Map90', 'Map100'].forEach(colKey => {
+                const colData = collectionsCompare?.[colKey];
+                if (!colData || !colData.by_class[clsId]) return;
+                traces.push({
+                    x: colData.years,
+                    y: colData.by_class[clsId].map(v => +(v / 1e6).toFixed(4)),
+                    type: 'scatter', mode: 'lines',
+                    name: colData.label,
+                    line: { color: colData.color, width: 1.5, dash: 'dot' },
+                    hovertemplate: `<b>${colData.label}</b> %{x}: %{y:.3f} Mha<extra></extra>`,
+                    opacity: 0.75,
+                });
+            });
+
+            // Camada selecionada (barras na cor da própria classe)
+            traces.push({
+                x: d.years,
+                y: d.areas.map(v => +(v / 1e6).toFixed(4)),
+                type: 'bar',
+                name: layerKey,
+                marker: { color: d.hex_color, opacity: 0.88,
+                          line: { color: 'rgba(0,0,0,0.15)', width: 0.5 } },
+                hovertemplate: `<b>${layerKey}</b> %{x}: %{y:.3f} Mha<extra></extra>`,
+            });
+
+            Plotly.react(
+                document.getElementById(colId),
+                traces,
+                {
+                    margin: { t: 5, l: 45, r: 5, b: 25 },
+                    height: 215,
+                    barmode: 'overlay',
+                    showlegend: false,
+                    xaxis: { dtick: 10, tickfont: { size: 9 } },
+                    yaxis: { title: 'Mha', tickfont: { size: 9 }, tickformat: ',.3f' },
+                    plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+                },
+                { responsive: true, displayModeBar: false }
+            );
         });
     }
-    
-    // Botão de exportar
-    document.getElementById('export-btn').addEventListener('click', function() {
-        // Implementar exportação completa dos dados
-        alert('Exportação de dados será implementada em breve!');
+
+    /* 7e. Pie charts */
+    function renderPie(elId, pieData, classNames) {
+        const el = document.getElementById(elId);
+        if (!el || !pieData) return;
+        const ids    = Object.keys(pieData).map(Number);
+        const values = ids.map(id => +(pieData[id] / 1e6).toFixed(4));
+        const labels = ids.map(id => classNames?.[id] || `Cls ${id}`);
+        const colors = ids.map(id => {
+            const palette = {
+                3:  '#1f8d49',  // Floresta
+                4:  '#7dc975',  // Savana
+                12: '#d6bc74',  // Campestre
+                15: '#edde8e',  // Pastagem
+                19: '#ffffb2',  // Lav. Temporária
+                21: '#ffefc3',  // Mosaico de Uso
+                25: '#d4271e',  // Outras n. Veg.
+                29: '#e975ad',  // Afloramento
+                33: '#2532e4',  // Água
+                36: '#c1db8a',  // Lav. Perene
+            };
+            return palette[id] || '#aaa';
+        });
+        Plotly.react(el, [{
+            values, labels, type: 'pie',
+            marker: { colors },
+            textinfo: 'none',
+            hovertemplate: '<b>%{label}</b><br>%{value:.3f} Mha (%{percent})<extra></extra>',
+            hole: 0.35,
+        }], {
+            margin: { t: 5, l: 0, r: 0, b: 5 },
+            height: 270,
+            showlegend: false,
+            plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+        }, { responsive: true, displayModeBar: false });
+    }
+
+    /* 7f. Tabela Ganho/Perda */
+    function renderGainLoss(data, sy, ey) {
+        const el = document.getElementById('gain-loss-container');
+        if (!el) return;
+        if (!data || data.length === 0) {
+            el.innerHTML = '<p class="text-muted text-center p-4 small">Sem dados</p>';
+            return;
+        }
+        let rows = data.map(item => {
+            const sa   = (item.start_area / 1e6).toFixed(3);
+            const ea   = (item.end_area   / 1e6).toFixed(3);
+            const diff = (item.difference / 1e6).toFixed(3);
+            const pct  = item.percent.toFixed(2);
+            const cls  = item.percent > 0 ? 'gain' : (item.percent < 0 ? 'loss' : '');
+            const ico  = item.percent > 0 ? '▲' : (item.percent < 0 ? '▼' : '■');
+            return `<tr>
+                <td><span class="cls-dot-sm" style="background:${item.hex_color}"></span>${item.class_name}</td>
+                <td class="text-end">${sa}</td>
+                <td class="text-end">${ea}</td>
+                <td class="text-end">${diff}</td>
+                <td class="text-end ${cls}">${ico} ${pct}%</td>
+            </tr>`;
+        }).join('');
+        el.innerHTML = `
+            <table class="gain-loss-table">
+                <thead><tr>
+                    <th>Classe</th>
+                    <th class="text-end">Área ${sy} (Mha)</th>
+                    <th class="text-end">Área ${ey} (Mha)</th>
+                    <th class="text-end">Dif. (Mha)</th>
+                    <th class="text-end">%</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    }
+
+    /* 7g. Matriz de confusão */
+    function renderConfusionMatrix(cm) {
+        const el  = document.getElementById('confusion-matrix-container');
+        const pan = document.getElementById('cm-panel');
+        if (!el) return;
+
+        const showCM = document.getElementById('toggle-cm').checked;
+        if (!showCM || !cm) {
+            if (pan) pan.style.display = 'none';
+            return;
+        }
+        if (pan) pan.style.display = '';
+
+        const classes = cm.classes;
+        const matrix  = cm.matrix;
+        const total   = matrix.flat().reduce((a, b) => a + b, 0);
+
+        // Calcular acurácia global do usuário
+        const diag = classes.reduce((s, _, i) => s + (matrix[i]?.[i] || 0), 0);
+        const acc  = total > 0 ? (diag / total * 100).toFixed(1) : '—';
+        const badge = document.getElementById('cm-acc-badge');
+        if (badge) badge.textContent = `Acc = ${acc}%`;
+
+        // Rótulos de classes
+        const clsNames = (document.querySelector('input[name="num_class"]:checked')?.value === '7')
+            ? window.CLASS_NAMES_7
+            : window.CLASS_NAMES_10;
+
+        const header = `<tr><th class="cm-corner">Ref ↓ / Pred →</th>` +
+            classes.map(c => `<th>${clsNames[c] || c}</th>`).join('') + `<th>Total</th></tr>`;
+
+        const bodyRows = matrix.map((row, i) => {
+            const rowTotal = row.reduce((a, b) => a + b, 0);
+            const cells    = row.map((v, j) => {
+                const pct  = rowTotal > 0 ? (v / rowTotal * 100) : 0;
+                const isDiag = i === j;
+                const style  = isDiag
+                    ? `background:rgba(31,141,73,${(pct/100).toFixed(2)});color:${pct>50?'#fff':'#222'}`
+                    : `background:rgba(231,76,60,${(pct/200).toFixed(3)})`;
+                return `<td style="${style}" title="${v} (${pct.toFixed(1)}%)">${v}</td>`;
+            }).join('');
+            return `<tr><th>${clsNames[classes[i]] || classes[i]}</th>${cells}<td class="cm-total">${rowTotal}</td></tr>`;
+        }).join('');
+
+        const colTotals = classes.map((_, j) => matrix.reduce((s, r) => s + (r[j] || 0), 0));
+        const totalRow  = `<tr class="cm-total-row"><th>Total</th>` +
+            colTotals.map(v => `<td>${v}</td>`).join('') +
+            `<td><strong>${total}</strong></td></tr>`;
+
+        el.innerHTML = `<table class="cm-table">${header}${bodyRows}${totalRow}</table>`;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 8. ATUALIZAÇÃO PRINCIPAL
+    // ─────────────────────────────────────────────────────────────────────
+    async function updateDashboard() {
+        const statusBar = document.getElementById('status-bar');
+        const errorBar  = document.getElementById('error-bar');
+        if (statusBar) statusBar.classList.remove('d-none');
+        if (errorBar)  errorBar.classList.add('d-none');
+
+        try {
+            const p   = getParams();
+            const qs  = new URLSearchParams(p).toString();
+            const res = await fetch(`/api/data?${qs}`);
+
+            if (!res.ok) {
+                const msg = await res.text();
+                throw new Error(`API ${res.status}: ${msg}`);
+            }
+
+            const data = await res.json();
+            lastData = data;
+
+            const numClass = +p.num_class;
+            const clsNames = numClass === 7 ? window.CLASS_NAMES_7 : window.CLASS_NAMES_10;
+
+            renderMap(data.map_geojson);
+            renderAccuracy(data.accuracy, p.layer_key);
+            renderAccTimeseries(
+                data.accuracy?.selected?.by_year,
+                data.accuracy?.col100?.by_year,
+                p.layer_key
+            );
+            renderAreaCharts(data.area_charts, data.collections_compare, p.layer_key);
+            renderPie('pie-1985', data.pie_1985, clsNames);
+            renderPie('pie-end',  data.pie_end,  clsNames);
+
+            const pieEndLbl = document.getElementById('pie-end-label');
+            if (pieEndLbl) pieEndLbl.textContent = data.pie_end_year || p.end_year;
+
+            renderGainLoss(data.gain_loss, p.start_year, p.end_year);
+            renderConfusionMatrix(data.confusion_matrix);
+
+        } catch (err) {
+            console.error('Erro ao atualizar dashboard:', err);
+            if (errorBar) {
+                errorBar.textContent = `Erro: ${err.message}`;
+                errorBar.classList.remove('d-none');
+            }
+        } finally {
+            if (statusBar) statusBar.classList.add('d-none');
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 9. CHECKBOX MATRIZ DE CONFUSÃO
+    // ─────────────────────────────────────────────────────────────────────
+    document.getElementById('toggle-cm').addEventListener('change', function () {
+        if (this.checked && lastData?.confusion_matrix) {
+            renderConfusionMatrix(lastData.confusion_matrix);
+        } else if (!this.checked) {
+            const pan = document.getElementById('cm-panel');
+            if (pan) pan.style.display = 'none';
+        } else {
+            // precisa chamar API com include_cm=true
+            updateDashboard();
+        }
     });
-    
-    // --- INICIALIZAÇÃO DO DASHBOARD ---
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 10. EVENT LISTENERS
+    // ─────────────────────────────────────────────────────────────────────
+    document.getElementById('btn-update').addEventListener('click', updateDashboard);
+
+    // Mudança de qualquer filtro (exceto toggle-cm que tem handler próprio)
+    ['bacia-filter', 'layer-filter', 'version-filter'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', updateDashboard);
+    });
+    document.querySelectorAll('input[name="num_class"]').forEach(
+        el => el.addEventListener('change', updateDashboard)
+    );
+    document.querySelectorAll('input[name="janela"]').forEach(
+        el => el.addEventListener('change', updateDashboard)
+    );
+    document.querySelectorAll('input[name="limit_shp_filter"]').forEach(
+        el => el.addEventListener('change', updateDashboard)
+    );
+    if (sliderEl) {
+        sliderEl.noUiSlider.on('change', updateDashboard);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 11. INICIALIZAÇÃO
+    // ─────────────────────────────────────────────────────────────────────
     updateDashboard();
 });

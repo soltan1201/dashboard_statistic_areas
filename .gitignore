@@ -1,3 +1,4 @@
 src/dados/*
 !src/dados/.gitkeep
 src/.env
+.venv
