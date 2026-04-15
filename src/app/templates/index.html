@@ -26,6 +26,8 @@
             <label for="btn-caatinga"><i class="fas fa-mountain me-1"></i>Caatinga</label>
             <input type="radio" id="btn-semiarido" name="limit_shp_filter" value="SEMIARIDO">
             <label for="btn-semiarido"><i class="fas fa-sun me-1"></i>Semiárido</label>
+            <input type="radio" id="btn-bacias" name="limit_shp_filter" value="BACIAS">
+            <label for="btn-bacias"><i class="fas fa-water me-1"></i>Bacias</label>
         </div>
         <button id="btn-update" class="btn-refresh">
             <i class="fas fa-sync-alt me-1"></i>Atualizar
@@ -46,7 +48,7 @@
                     <i class="fas fa-map-marker-alt"></i> Região / Bacia
                 </div>
                 <select id="bacia-filter" class="form-select form-select-sm">
-                    <option value="Caatinga" selected>Caatinga (toda)</option>
+                    <option value="Caatinga" selected>Bacias (all)</option>
                 </select>
             </div>
 
@@ -264,7 +266,7 @@
 
         <!-- ── Linha 4: Ganho/Perda + Matriz de Confusão ─────────────── -->
         <div class="row g-3 mb-3">
-            <div class="col-lg-6">
+            <div class="col-12" id="gain-loss-panel">
                 <div class="dash-card h-100">
                     <div class="dash-card-header">
                         <span><i class="fas fa-exchange-alt me-2"></i>Ganho e Perda</span>
@@ -276,7 +278,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-lg-6" id="cm-panel" style="display:none;">
+            <div class="col-12" id="cm-panel" style="display:none;">
                 <div class="dash-card h-100">
                     <div class="dash-card-header">
                         <span><i class="fas fa-th me-2"></i>Matriz de Confusão</span>

@@ -31,6 +31,7 @@ GEOJSON_PATHS = {
     "tis-port":                  os.path.join(pathparent, "dados/geojson/tis_poligonais_portarias.geojson"),
     "vetor_biomas_250":          os.path.join(pathparent, "dados/geojson/vetor_biomas_250.geojson"),
     "UnidCons-S":                os.path.join(pathparent, "dados/geojson/UnidadesConservacao_S.geojson"),
+    "bacias-caatinga":           os.path.join(pathparent, "dados/bacias_caatinga_div_49_regions_geojson.geojson"),
 }
 
 gdfs = {}
@@ -98,6 +99,7 @@ def get_data():
     start_year = request.args.get('start_year', 1985, type=int)
     end_year   = request.args.get('end_year',   2025, type=int)
     include_cm = request.args.get('include_cm', 'false').lower() == 'true'
+    limit_shp  = request.args.get('limit_shp',  'CAATINGA', type=str).upper()
 
     # ── Legenda de classes ────────────────────────────────────────────────
     df_cls   = pd.read_sql(ClassInfo.query.statement, db.engine)
@@ -250,11 +252,30 @@ def get_data():
 
     # ── Mapa GeoJSON ──────────────────────────────────────────────────────
     map_geojson = None
-    if gdfs.get('vetor_biomas_250') is not None:
-        gdf = gdfs['vetor_biomas_250']
-        gdf = gdf[gdf['CD_Bioma'].astype(int) == 2]
-        if not gdf.empty:
-            map_geojson = gdf.__geo_interface__
+    map_overlay = None   # todas as bacias como contexto (quando bacia específica selecionada)
+
+    gdf_bacias = gdfs.get('bacias-caatinga')
+
+    if limit_shp == 'BACIAS' and gdf_bacias is not None:
+        if bacia == 'Caatinga':
+            # Mostrar todas as 49 bacias
+            map_geojson = gdf_bacias.__geo_interface__
+        else:
+            # Bacia específica destacada + todas como overlay de contexto
+            mask = gdf_bacias['nunivotto4'].astype(str) == str(bacia)
+            sel  = gdf_bacias[mask]
+            if not sel.empty:
+                map_geojson = sel.__geo_interface__
+            map_overlay = gdf_bacias.__geo_interface__
+    elif limit_shp == 'SEMIARIDO' and gdfs.get('semiarido') is not None:
+        map_geojson = gdfs['semiarido'].__geo_interface__
+    else:
+        # Padrão: contorno do bioma Caatinga
+        if gdfs.get('vetor_biomas_250') is not None:
+            gdf = gdfs['vetor_biomas_250']
+            gdf = gdf[gdf['CD_Bioma'].astype(int) == 2]
+            if not gdf.empty:
+                map_geojson = gdf.__geo_interface__
 
     return jsonify({
         'area_charts':         area_charts,
@@ -265,6 +286,7 @@ def get_data():
         'accuracy':            accuracy,
         'confusion_matrix':    cm_data,
         'map_geojson':         map_geojson,
+        'map_overlay':         map_overlay,
         'gain_loss':           gain_loss,
     })
 

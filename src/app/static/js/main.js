@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─────────────────────────────────────────────────────────────────────
     let map        = null;
     let geojsonLyr = null;
+    let overlayLyr = null;
     let lastData   = null;
 
     // ─────────────────────────────────────────────────────────────────────
@@ -74,10 +75,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/bacias');
             const lst = await res.json();
             const sel = document.getElementById('bacia-filter');
+            sel.innerHTML = '';   // limpa a opção estática para evitar duplicatas
             lst.forEach(b => {
                 const opt = document.createElement('option');
                 opt.value = b;
-                opt.textContent = b;
+                opt.textContent = b === 'Caatinga' ? 'Bacias (all)' : b;
+                if (b === 'Caatinga') opt.selected = true;
                 sel.appendChild(opt);
             });
         } catch (e) {
@@ -97,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const needsJ   = layerSel.selectedOptions[0]?.dataset.needsJanela === '1';
         return {
             bacia:      document.getElementById('bacia-filter').value,
+            limit_shp:  document.querySelector('input[name="limit_shp_filter"]:checked')?.value || 'CAATINGA',
             layer_key:  lk,
             version:    versInput.value,
             num_class:  numClass,
@@ -112,12 +116,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // ─────────────────────────────────────────────────────────────────────
 
     /* 7a. Mapa */
-    function renderMap(geojson) {
+    function renderMap(geojson, overlay) {
         if (!map) return;
         if (geojsonLyr) { map.removeLayer(geojsonLyr); geojsonLyr = null; }
+        if (overlayLyr) { map.removeLayer(overlayLyr); overlayLyr = null; }
+
+        // Overlay: todas as bacias em cinza claro (contexto)
+        if (overlay) {
+            overlayLyr = L.geoJSON(overlay, {
+                style: { color: '#666', weight: 0.7, fillColor: '#aaa', fillOpacity: 0.05 }
+            }).addTo(map);
+        }
+
         if (!geojson) return;
         geojsonLyr = L.geoJSON(geojson, {
-            style: { color: '#1f8d49', weight: 2, fillOpacity: 0.08 }
+            style: { color: '#1f8d49', weight: 2, fillOpacity: 0.12 }
         }).addTo(map);
         map.fitBounds(geojsonLyr.getBounds(), { padding: [10, 10] });
     }
@@ -449,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const numClass = +p.num_class;
             const clsNames = numClass === 7 ? window.CLASS_NAMES_7 : window.CLASS_NAMES_10;
 
-            renderMap(data.map_geojson);
+            renderMap(data.map_geojson, data.map_overlay);
             renderAccuracy(data.accuracy, p.layer_key);
             renderAccTimeseries(
                 data.accuracy?.selected?.by_year,
