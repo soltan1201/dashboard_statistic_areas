@@ -385,6 +385,135 @@ document.addEventListener('DOMContentLoaded', () => {
             </table>`;
     }
 
+    /* helper: cor hex de uma classe pelo id */
+    function getClassHex(clsId) {
+        return lastData?.area_charts?.[clsId]?.hex_color || '#aaaaaa';
+    }
+
+    /* 7g-extra. Comissão e Omissão — dois gráficos lado a lado */
+    function renderCmErrorCharts(cm) {
+        const commPan = document.getElementById('cm-commission-panel');
+        const omitPan = document.getElementById('cm-omission-panel');
+
+        function hidePanels() {
+            if (commPan) commPan.style.display = 'none';
+            if (omitPan) omitPan.style.display = 'none';
+        }
+
+        if (!cm) { hidePanels(); return; }
+
+        const elComm = document.getElementById('cm-commission-chart');
+        const elOmit = document.getElementById('cm-omission-chart');
+        if (!elComm || !elOmit) { hidePanels(); return; }
+
+        const classes = cm.classes;
+        const matrix  = cm.matrix;
+        const n       = classes.length;
+
+        const clsNames = document.querySelector('input[name="num_class"]:checked')?.value === '7'
+            ? window.CLASS_NAMES_7 : window.CLASS_NAMES_10;
+
+        const rowSums = matrix.map(row => row.reduce((a, b) => a + b, 0));
+        const colSums = classes.map((_, j) => matrix.reduce((s, row) => s + (row[j] || 0), 0));
+
+        const yLabels = classes.map(c => clsNames[c] || `Cl.${c}`);
+        const h = Math.max(220, n * 26 + 60);
+
+        // Tick labels: eixo simétrico mostrando valores absolutos (como na referência)
+        const tickVals = [-1,-0.9,-0.8,-0.7,-0.6,-0.5,-0.4,-0.3,-0.2,-0.1,0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1];
+        const tickText = tickVals.map(v => Math.abs(v) === 0 ? '0' : String(Math.abs(v)));
+
+        const sharedLayout = {
+            barmode: 'relative',
+            height: h,
+            margin: { t: 10, l: 180, r: 15, b: 40 },
+            xaxis: {
+                title: 'Valor',
+                range: [-1.05, 1.05],
+                tickvals: tickVals,
+                ticktext: tickText,
+                zeroline: true, zerolinecolor: '#333', zerolinewidth: 2,
+                tickfont: { size: 9 },
+            },
+            yaxis: { automargin: true, tickfont: { size: 10 } },
+            showlegend: false,
+            plot_bgcolor: 'transparent',
+            paper_bgcolor: 'transparent',
+        };
+
+        // ── COMISSÃO (colunas): Classes Mapeadas ──────────────────────────
+        // Positivo = diagonal (Acurácia do Usuário)
+        // Negativo = erros de comissão por classe confusora
+        const commTraces = [];
+
+        // Diagonal
+        commTraces.push({
+            x: classes.map((_, i) => colSums[i] > 0 ? matrix[i][i] / colSums[i] : 0),
+            y: yLabels,
+            type: 'bar', orientation: 'h',
+            name: 'Correto',
+            marker: { color: '#1f8d49', opacity: 0.85 },
+            hovertemplate: '<b>Correto</b> %{y}: %{x:.1%}<extra></extra>',
+        });
+
+        // Erros de comissão: classe j mapeada como classe i → negativo no eixo da classe i
+        classes.forEach((cls_j, j) => {
+            const xVals = classes.map((_, i) => {
+                if (i === j || colSums[i] === 0) return 0;
+                return -(matrix[j][i] / colSums[i]);
+            });
+            if (xVals.every(v => v === 0)) return;
+            const nameJ = clsNames[cls_j] || `Cl.${cls_j}`;
+            commTraces.push({
+                x: xVals, y: yLabels,
+                type: 'bar', orientation: 'h',
+                name: nameJ,
+                marker: { color: getClassHex(cls_j), opacity: 0.82 },
+                hovertemplate: `<b>${nameJ}</b> em %{y}: %{customdata:.1%}<extra></extra>`,
+                customdata: xVals.map(v => Math.abs(v)),
+            });
+        });
+
+        // ── OMISSÃO (filas): Classes Reais ────────────────────────────────
+        // Positivo = diagonal (Acurácia do Produtor)
+        // Negativo = erros de omissão por classe de destino
+        const omitTraces = [];
+
+        // Diagonal
+        omitTraces.push({
+            x: classes.map((_, i) => rowSums[i] > 0 ? matrix[i][i] / rowSums[i] : 0),
+            y: yLabels,
+            type: 'bar', orientation: 'h',
+            name: 'Correto',
+            marker: { color: '#1f8d49', opacity: 0.85 },
+            hovertemplate: '<b>Correto</b> %{y}: %{x:.1%}<extra></extra>',
+        });
+
+        // Erros de omissão: classe i mapeada como classe j → negativo no eixo da classe i
+        classes.forEach((cls_j, j) => {
+            const xVals = classes.map((_, i) => {
+                if (i === j || rowSums[i] === 0) return 0;
+                return -(matrix[i][j] / rowSums[i]);
+            });
+            if (xVals.every(v => v === 0)) return;
+            const nameJ = clsNames[cls_j] || `Cl.${cls_j}`;
+            omitTraces.push({
+                x: xVals, y: yLabels,
+                type: 'bar', orientation: 'h',
+                name: nameJ,
+                marker: { color: getClassHex(cls_j), opacity: 0.82 },
+                hovertemplate: `<b>${nameJ}</b> em %{y}: %{customdata:.1%}<extra></extra>`,
+                customdata: xVals.map(v => Math.abs(v)),
+            });
+        });
+
+        if (commPan) commPan.style.display = '';
+        if (omitPan) omitPan.style.display = '';
+
+        Plotly.react(elComm, commTraces, sharedLayout, { responsive: true, displayModeBar: false });
+        Plotly.react(elOmit, omitTraces, sharedLayout, { responsive: true, displayModeBar: false });
+    }
+
     /* 7g. Matriz de confusão */
     function renderConfusionMatrix(cm) {
         const el  = document.getElementById('confusion-matrix-container');
@@ -394,6 +523,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const showCM = document.getElementById('toggle-cm').checked;
         if (!showCM || !cm) {
             if (pan) pan.style.display = 'none';
+            renderCmErrorCharts(null);
             return;
         }
         if (pan) pan.style.display = '';
@@ -435,6 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
             `<td><strong>${total}</strong></td></tr>`;
 
         el.innerHTML = `<table class="cm-table">${header}${bodyRows}${totalRow}</table>`;
+
+        renderCmErrorCharts(cm);
     }
 
     // ─────────────────────────────────────────────────────────────────────
