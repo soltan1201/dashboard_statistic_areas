@@ -452,7 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
             y: yLabels,
             type: 'bar', orientation: 'h',
             name: 'Correto',
-            marker: { color: '#1f8d49', opacity: 0.85 },
+            marker: { color: classes.map(c => getClassHex(c)), opacity: 0.85 },
             hovertemplate: '<b>Correto</b> %{y}: %{x:.1%}<extra></extra>',
         });
 
@@ -485,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
             y: yLabels,
             type: 'bar', orientation: 'h',
             name: 'Correto',
-            marker: { color: '#1f8d49', opacity: 0.85 },
+            marker: { color: classes.map(c => getClassHex(c)), opacity: 0.85 },
             hovertemplate: '<b>Correto</b> %{y}: %{x:.1%}<extra></extra>',
         });
 
