@@ -2,3 +2,5 @@ src/dados/*
 !src/dados/.gitkeep
 src/.env
 .venv
+src/instance/database.sqlite
+src/instance/
