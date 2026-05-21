@@ -321,6 +321,8 @@ body {
 }
 td.gain { color: var(--green); font-weight: 700; }
 td.loss { color: var(--red);   font-weight: 700; }
+tr.row-worse { background: rgba(231,76,60,.06); }
+tr.row-worse:hover { background: rgba(231,76,60,.13) !important; }
 
 /* ── Confusion Matrix ─────────────────────────────────── */
 .cm-table {

@@ -385,6 +385,63 @@ document.addEventListener('DOMContentLoaded', () => {
             </table>`;
     }
 
+    /* 7h. Ranking de acurácia por bacia vs Col 10 */
+    async function loadAccuracyRanking(params) {
+        const el    = document.getElementById('acc-ranking-container');
+        const badge = document.getElementById('acc-ranking-badge');
+        if (!el) return;
+
+        try {
+            const qs  = new URLSearchParams({
+                layer_key: params.layer_key,
+                version:   params.version,
+                num_class: params.num_class,
+                janela:    params.janela || '',
+            }).toString();
+            const res  = await fetch(`/api/accuracy_ranking?${qs}`);
+            const data = await res.json();
+
+            if (!data.length) {
+                el.innerHTML = '<p class="text-muted text-center p-4 small">Sem dados de acurácia</p>';
+                if (badge) badge.textContent = '—';
+                return;
+            }
+
+            const worseCount = data.filter(r => r.worse).length;
+            if (badge) badge.textContent = `${worseCount} de ${data.length} bacias abaixo da Col 10`;
+
+            const rows = data.map(r => {
+                const accSel   = r.acc_sel   != null ? r.acc_sel.toFixed(1)   + '%' : '—';
+                const accCol10 = r.acc_col10 != null ? r.acc_col10.toFixed(1) + '%' : '—';
+                const diff     = r.diff      != null ? r.diff.toFixed(2)      + '%' : '—';
+                const icon     = r.worse ? '▼' : (r.diff > 0 ? '▲' : '■');
+                const cls      = r.worse ? 'loss' : (r.diff > 0 ? 'gain' : '');
+                const rowCls   = r.worse ? 'row-worse' : '';
+                const isAggreg = r.id_bacia === 'Caatinga' ? 'font-weight:600;' : '';
+                return `<tr class="${rowCls}" style="${isAggreg}">
+                    <td>${r.id_bacia}</td>
+                    <td class="text-end">${accSel}</td>
+                    <td class="text-end">${accCol10}</td>
+                    <td class="text-end ${cls}">${icon} ${diff}</td>
+                </tr>`;
+            }).join('');
+
+            el.innerHTML = `
+                <table class="gain-loss-table">
+                    <thead><tr>
+                        <th>Bacia</th>
+                        <th class="text-end">Acurácia</th>
+                        <th class="text-end">Col 10</th>
+                        <th class="text-end">Diferença</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+        } catch (e) {
+            console.warn('Ranking acurácia:', e);
+            if (el) el.innerHTML = '<p class="text-muted text-center p-4 small">Erro ao carregar ranking</p>';
+        }
+    }
+
     /* helper: cor hex de uma classe pelo id */
     function getClassHex(clsId) {
         return lastData?.area_charts?.[clsId]?.hex_color || '#aaaaaa';
@@ -610,6 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderGainLoss(data.gain_loss, p.start_year, p.end_year);
             renderConfusionMatrix(data.confusion_matrix);
+            loadAccuracyRanking(p);
 
         } catch (err) {
             console.error('Erro ao atualizar dashboard:', err);

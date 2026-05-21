@@ -1,6 +1,30 @@
-src/dados/*
-!src/dados/.gitkeep
+# ── Ambiente virtual ──────────────────────────────────────
+.venv/
+venv/
+
+# ── Variáveis de ambiente ─────────────────────────────────
 src/.env
-.venv
-src/instance/database.sqlite
+.env
+
+# ── Banco de dados ────────────────────────────────────────
 src/instance/
+*.sqlite
+*.db
+src/instance/database.sqlite
+# ── Dados: ignorar tudo exceto .geojson e .json ───────────
+src/dados/*
+!src/dados/**/*.geojson
+!src/dados/**/*.json
+!src/dados/*.geojson
+!src/dados/*.json
+
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Sistema ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db

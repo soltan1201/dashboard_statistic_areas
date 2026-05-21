@@ -301,6 +301,57 @@ def get_bacias():
     return jsonify(['Caatinga'] + lst)
 
 
+@api_bp.route('/accuracy_ranking')
+def get_accuracy_ranking():
+    layer_key = request.args.get('layer_key', 'spatial_all', type=str)
+    version   = request.args.get('version',   1,  type=int)
+    num_class = request.args.get('num_class',  10, type=int)
+    janela    = request.args.get('janela',     None, type=int)
+
+    # Acurácia da camada selecionada — todas as bacias, year='All'
+    q_sel = (AccuracyData.query
+             .filter(AccuracyData.year      == 'All',
+                     AccuracyData.layer_key == layer_key,
+                     AccuracyData.version   == version,
+                     AccuracyData.num_class == num_class))
+    if janela:
+        q_sel = q_sel.filter(AccuracyData.janela == janela)
+    else:
+        q_sel = q_sel.filter(AccuracyData.janela.is_(None))
+    df_sel = pd.read_sql(q_sel.statement, db.engine)
+
+    # Acurácia Col 10 — todas as bacias, year='All'
+    df_col10 = pd.read_sql(
+        AccuracyData.query
+        .filter(AccuracyData.year      == 'All',
+                AccuracyData.layer_key == 'Map100',
+                AccuracyData.num_class == num_class,
+                AccuracyData.janela.is_(None))
+        .statement, db.engine)
+
+    if df_sel.empty:
+        return jsonify([])
+
+    col10_map = dict(zip(df_col10['id_bacia'], df_col10['global_accuracy']))
+
+    result = []
+    for _, row in df_sel.iterrows():
+        bacia     = row['id_bacia']
+        acc_sel   = float(row['global_accuracy']) if pd.notna(row['global_accuracy']) else None
+        acc_col10 = float(col10_map[bacia]) if bacia in col10_map else None
+        diff      = round(acc_sel - acc_col10, 2) if (acc_sel and acc_col10) else None
+        result.append({
+            'id_bacia':  bacia,
+            'acc_sel':   round(acc_sel,   2) if acc_sel   is not None else None,
+            'acc_col10': round(acc_col10, 2) if acc_col10 is not None else None,
+            'diff':      diff,
+            'worse':     diff < 0 if diff is not None else None,
+        })
+
+    result.sort(key=lambda r: (r['diff'] is None, r['diff'] or 0))
+    return jsonify(result)
+
+
 @api_bp.route('/layers')
 def get_layers():
     rows = db.session.query(
