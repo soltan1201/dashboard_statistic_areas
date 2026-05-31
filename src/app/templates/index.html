@@ -59,13 +59,14 @@
                 </div>
                 <select id="layer-filter" class="form-select form-select-sm">
                     <optgroup label="Col 11 — Filtros">
-                        <option value="spatial_all" data-version="1">Spatial All</option>
-                        <option value="spatial_int" data-version="1">Spatial Int</option>
-                        <option value="gap_fill"    data-version="1">Gap Fill</option>
-                        <option value="frequency"   data-version="1">Frequência</option>
-                        <option value="class"       data-version="1">Classificação direta</option>
-                        <option value="temporalN"   data-version="1" data-needs-janela="1">Temporal Natural</option>
-                        <option value="temporalA"   data-version="1" data-needs-janela="1">Temporal Antrópico</option>
+                        <option value="spatial_all"   data-version="1">Spatial All</option>
+                        <option value="spatial_int"   data-version="1">Spatial Int</option>
+                        <option value="spatial_Sieve" data-version="1" data-num-class="7">Spatial Sieve</option>
+                        <option value="gap_fill"      data-version="1">Gap Fill</option>
+                        <option value="frequency"     data-version="1">Frequência</option>
+                        <option value="class"         data-version="1">Classificação direta</option>
+                        <option value="temporalN"     data-version="1" data-needs-janela="1">Temporal Natural</option>
+                        <option value="temporalA"     data-version="1" data-needs-janela="1">Temporal Antrópico</option>
                     </optgroup>
                     <optgroup label="Coleções anteriores">
                         <option value="Map71"  data-version="10">Coleção 7.1</option>
@@ -264,8 +265,8 @@
             <!-- gráficos de área inseridos via JS -->
         </div>
 
-        <!-- ── Linha 4: Ganho/Perda + Matriz de Confusão ─────────────── -->
-        <div class="row g-3 mb-3">
+        <!-- ── Linha 4: Ganho/Perda + Matriz de Confusão (lado a lado) ── -->
+        <div class="row g-3 mb-3" id="gainloss-cm-row">
             <div class="col-12" id="gain-loss-panel">
                 <div class="dash-card h-100">
                     <div class="dash-card-header">
@@ -322,6 +323,26 @@
                     <div class="dash-card-body p-0">
                         <div class="table-responsive" id="acc-ranking-container">
                             <p class="text-muted text-center p-4 small">Carregando...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Linha 6: Área e Erro por Classe e Bacia ───────────────── -->
+        <div class="row g-3 mb-3">
+            <div class="col-12">
+                <div class="dash-card">
+                    <div class="dash-card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-map-marked-alt me-2"></i>Área e Erro por Classe</span>
+                        <select id="class-ranking-select" class="form-select form-select-sm"
+                                style="width:auto;min-width:170px;">
+                            <!-- populado pelo JS conforme num_class -->
+                        </select>
+                    </div>
+                    <div class="dash-card-body p-0">
+                        <div class="table-responsive" id="class-ranking-container">
+                            <p class="text-muted text-center p-4 small">Selecione uma classe acima...</p>
                         </div>
                     </div>
                 </div>

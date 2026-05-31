@@ -332,6 +332,27 @@ def get_accuracy_ranking():
     if df_sel.empty:
         return jsonify([])
 
+    # Acurácia por ano — para sparklines (exclui 'All')
+    q_years = (AccuracyData.query
+               .with_entities(AccuracyData.id_bacia, AccuracyData.year, AccuracyData.global_accuracy)
+               .filter(AccuracyData.year      != 'All',
+                       AccuracyData.layer_key == layer_key,
+                       AccuracyData.version   == version,
+                       AccuracyData.num_class == num_class))
+    if janela:
+        q_years = q_years.filter(AccuracyData.janela == janela)
+    else:
+        q_years = q_years.filter(AccuracyData.janela.is_(None))
+    df_years = pd.read_sql(q_years.statement, db.engine)
+
+    # dict: bacia → lista de acurácias ordenada por ano
+    years_map = {}
+    if not df_years.empty:
+        df_years['year_int'] = pd.to_numeric(df_years['year'], errors='coerce')
+        for bacia, grp in df_years.groupby('id_bacia'):
+            years_map[bacia] = (grp.sort_values('year_int')['global_accuracy']
+                                   .dropna().round(2).tolist())
+
     col10_map = dict(zip(df_col10['id_bacia'], df_col10['global_accuracy']))
 
     result = []
@@ -340,16 +361,96 @@ def get_accuracy_ranking():
         acc_sel   = float(row['global_accuracy']) if pd.notna(row['global_accuracy']) else None
         acc_col10 = float(col10_map[bacia]) if bacia in col10_map else None
         diff      = round(acc_sel - acc_col10, 2) if (acc_sel and acc_col10) else None
+
+        total_points   = None
+        correct_points = None
+        fp_pct         = None   # comissão: % médio de FP por classe
+        fn_pct         = None   # omissão : % médio de FN por classe
+        cm_raw = row.get('confusion_matrix_json')
+        if cm_raw and pd.notna(cm_raw):
+            matrix = json.loads(cm_raw)['matrix']
+            n      = len(matrix)
+            total_points   = int(sum(sum(r) for r in matrix))
+            correct_points = int(sum(matrix[i][i] for i in range(n)))
+
+            col_sums = [sum(matrix[r][i] for r in range(n)) for i in range(n)]
+            row_sums = [sum(matrix[i][c] for c in range(n)) for i in range(n)]
+
+            # FP por classe = pontos previstos como X que NÃO são X (comissão)
+            fp_rates = [(col_sums[i] - matrix[i][i]) / col_sums[i] * 100
+                        if col_sums[i] > 0 else 0.0
+                        for i in range(n)]
+            # FN por classe = pontos reais X que foram previstos como outro (omissão)
+            fn_rates = [(row_sums[i] - matrix[i][i]) / row_sums[i] * 100
+                        if row_sums[i] > 0 else 0.0
+                        for i in range(n)]
+
+            fp_pct = round(sum(fp_rates) / n, 2)
+            fn_pct = round(sum(fn_rates) / n, 2)
+
         result.append({
-            'id_bacia':  bacia,
-            'acc_sel':   round(acc_sel,   2) if acc_sel   is not None else None,
-            'acc_col10': round(acc_col10, 2) if acc_col10 is not None else None,
-            'diff':      diff,
-            'worse':     diff < 0 if diff is not None else None,
+            'id_bacia':       bacia,
+            'acc_sel':        round(acc_sel,   2) if acc_sel   is not None else None,
+            'acc_col10':      round(acc_col10, 2) if acc_col10 is not None else None,
+            'diff':           diff,
+            'worse':          diff < 0 if diff is not None else None,
+            'total_points':   total_points,
+            'correct_points': correct_points,
+            'fp_pct':         fp_pct,
+            'fn_pct':         fn_pct,
+            'years_acc':      years_map.get(bacia, []),
         })
 
     result.sort(key=lambda r: (r['diff'] is None, r['diff'] or 0))
     return jsonify(result)
+
+
+@api_bp.route('/class_ranking')
+def get_class_ranking():
+    layer_key  = request.args.get('layer_key', 'spatial_all', type=str)
+    version    = request.args.get('version',   1,    type=int)
+    num_class  = request.args.get('num_class',  10,   type=int)
+    janela     = request.args.get('janela',     None, type=int)
+    classe     = request.args.get('classe',     3,    type=int)
+    start_year = request.args.get('start_year', 1985, type=int)
+    end_year   = request.args.get('end_year',   2023, type=int)
+
+    # Série temporal completa da classe selecionada em todas as bacias
+    q = (AreaData.query
+         .with_entities(AreaData.id_bacia, AreaData.year, AreaData.area)
+         .filter(AreaData.layer_key == layer_key,
+                 AreaData.version   == version,
+                 AreaData.num_class == num_class,
+                 AreaData.classe    == classe,
+                 AreaData.year.between(start_year, end_year)))
+    if janela:
+        q = q.filter(AreaData.janela == janela)
+    else:
+        q = q.filter(AreaData.janela.is_(None))
+    df = pd.read_sql(q.statement, db.engine)
+
+    if df.empty:
+        return jsonify([])
+
+    rows = []
+    for bacia, grp in df.groupby('id_bacia'):
+        grp_s      = grp.sort_values('year')
+        years_area = grp_s['area'].round(2).tolist()
+        yr_map     = dict(zip(grp_s['year'], grp_s['area']))
+        a1985      = float(yr_map[start_year]) if start_year in yr_map else None
+        a_end      = float(yr_map[end_year])   if end_year   in yr_map else None
+        diff       = round(a_end - a1985, 2)   if (a1985 is not None and a_end is not None) else None
+        rows.append({
+            'id_bacia':   bacia,
+            'area_start': round(a1985, 2) if a1985 is not None else None,
+            'area_end':   round(a_end,  2) if a_end  is not None else None,
+            'diff':       diff,
+            'years_area': years_area,
+        })
+
+    # Caatinga primeiro, resto ordenado por área final decrescente
+    rows.sort(key=lambda r: (r['id_bacia'] != 'Caatinga', -(r['area_end'] or 0)))
+    return jsonify(rows)
 
 
 @api_bp.route('/layers')

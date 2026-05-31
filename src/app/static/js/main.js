@@ -63,6 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isCollection) {
             versInput.value = opt.dataset.version || '10';
         }
+
+        // Se a camada só existe em um num_class específico, força o radio correto
+        const forcedNc = opt && opt.dataset.numClass;
+        if (forcedNc) {
+            const radio = document.querySelector(`input[name="num_class"][value="${forcedNc}"]`);
+            if (radio) radio.checked = true;
+        }
     }
     layerSel.addEventListener('change', updateLayerControls);
     updateLayerControls();
@@ -318,29 +325,44 @@ document.addEventListener('DOMContentLoaded', () => {
         const el = document.getElementById(elId);
         if (!el || !pieData) return;
         const ids    = Object.keys(pieData).map(Number);
-        const values = ids.map(id => +(pieData[id] / 1e6).toFixed(4));
+        const values = ids.map(id => +(pieData[id] / 1000).toFixed(2));   // mil ha
         const labels = ids.map(id => classNames?.[id] || `Cls ${id}`);
         const colors = ids.map(id => {
             const palette = {
-                3:  '#1f8d49',  // Floresta
-                4:  '#7dc975',  // Savana
-                12: '#d6bc74',  // Campestre
-                15: '#edde8e',  // Pastagem
-                19: '#ffffb2',  // Lav. Temporária
-                21: '#ffefc3',  // Mosaico de Uso
-                25: '#d4271e',  // Outras n. Veg.
-                29: '#e975ad',  // Afloramento
-                33: '#2532e4',  // Água
-                36: '#c1db8a',  // Lav. Perene
+                3:  '#1f8d49',
+                4:  '#7dc975',
+                12: '#d6bc74',
+                15: '#edde8e',
+                19: '#ffffb2',
+                21: '#ffefc3',
+                25: '#d4271e',
+                29: '#e975ad',
+                33: '#2532e4',
+                36: '#c1db8a',
             };
             return palette[id] || '#aaa';
         });
+
+        const total = values.reduce((a, b) => a + b, 0);
+        // texto visível: só mostra nas fatias com pelo menos 3% para não poluir
+        const textArr = values.map((v, i) => {
+            const pct = total > 0 ? v / total : 0;
+            if (pct < 0.03) return '';
+            const milHa = v >= 1000
+                ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' M ha'
+                : v.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' k ha';
+            return `${(pct * 100).toFixed(1)}%\n${milHa}`;
+        });
+
         Plotly.react(el, [{
             values, labels, type: 'pie',
-            marker: { colors },
-            textinfo: 'none',
-            hovertemplate: '<b>%{label}</b><br>%{value:.3f} Mha (%{percent})<extra></extra>',
-            hole: 0.35,
+            marker:   { colors },
+            text:     textArr,
+            textinfo: 'text',
+            textfont: { size: 9 },
+            insidetextorientation: 'auto',
+            hovertemplate: '<b>%{label}</b><br>%{value:,.0f} k ha (%{percent:.1%})<extra></extra>',
+            hole: 0.32,
         }], {
             margin: { t: 5, l: 0, r: 0, b: 5 },
             height: 270,
@@ -385,6 +407,35 @@ document.addEventListener('DOMContentLoaded', () => {
             </table>`;
     }
 
+    /* sparkline SVG inline — área preenchida + linha de referência */
+    function sparkline(values, w = 88, h = 28, color = '#3182ce') {
+        if (!values || values.length < 2) return '<span style="color:#888;font-size:10px">—</span>';
+        const min  = Math.min(...values);
+        const max  = Math.max(...values);
+        const span = max - min || 1;
+        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        const pad  = 2;
+        const W = w - pad * 2;
+        const H = h - pad * 2;
+
+        const toX = i => pad + (i / (values.length - 1)) * W;
+        const toY = v => pad + H - ((v - min) / span) * H;
+
+        const pts   = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`);
+        const areaD = `M ${pts[0]} L ${pts.join(' L ')} L ${toX(values.length-1).toFixed(1)},${(pad+H).toFixed(1)} L ${pad},${(pad+H).toFixed(1)} Z`;
+        const refY  = toY(mean).toFixed(1);
+
+        // cor de fill com alpha baixo a partir da cor da linha
+        const fillColor = color === '#000' || color === '#1a1a1a'
+            ? 'rgba(0,0,0,0.15)' : 'rgba(49,130,206,0.25)';
+
+        return `<svg width="${w}" height="${h}" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
+            <path d="${areaD}" fill="${fillColor}" stroke="none"/>
+            <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
+            <line x1="${pad}" y1="${refY}" x2="${(pad+W).toFixed(1)}" y2="${refY}" stroke="#888" stroke-width="1" stroke-dasharray="2,2" opacity="0.7"/>
+        </svg>`;
+    }
+
     /* 7h. Ranking de acurácia por bacia vs Col 10 */
     async function loadAccuracyRanking(params) {
         const el    = document.getElementById('acc-ranking-container');
@@ -418,11 +469,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cls      = r.worse ? 'loss' : (r.diff > 0 ? 'gain' : '');
                 const rowCls   = r.worse ? 'row-worse' : '';
                 const isAggreg = r.id_bacia === 'Caatinga' ? 'font-weight:600;' : '';
+
+                const totalPts  = r.total_points   != null ? r.total_points.toLocaleString('pt-BR')   : '—';
+                const correctPt = r.correct_points != null ? r.correct_points.toLocaleString('pt-BR') : '—';
+
+                // FP (comissão): % médio por classe de pontos previstos como X que não são X
+                const fpVal = r.fp_pct != null ? r.fp_pct.toFixed(1) + '%' : '—';
+                const fpCls = r.fp_pct != null && r.fp_pct > 20 ? 'loss' : '';
+
+                // FN (omissão): % médio por classe de pontos reais X classificados como outro
+                const fnVal = r.fn_pct != null ? r.fn_pct.toFixed(1) + '%' : '—';
+                const fnCls = r.fn_pct != null && r.fn_pct > 20 ? 'loss' : '';
+
                 return `<tr class="${rowCls}" style="${isAggreg}">
                     <td>${r.id_bacia}</td>
+                    <td style="padding:2px 6px">${sparkline(r.years_acc)}</td>
                     <td class="text-end">${accSel}</td>
                     <td class="text-end">${accCol10}</td>
                     <td class="text-end ${cls}">${icon} ${diff}</td>
+                    <td class="text-end">${totalPts}</td>
+                    <td class="text-end">${correctPt}</td>
+                    <td class="text-end ${fpCls}" title="Falso Positivo (comissão): média por classe de pontos previstos como X que não são X">${fpVal}</td>
+                    <td class="text-end ${fnCls}" title="Falso Negativo (omissão): média por classe de pontos reais X que foram classificados como outro">${fnVal}</td>
                 </tr>`;
             }).join('');
 
@@ -430,15 +498,94 @@ document.addEventListener('DOMContentLoaded', () => {
                 <table class="gain-loss-table">
                     <thead><tr>
                         <th>Bacia</th>
+                        <th title="Tendência de acurácia por ano — linha preta = média da bacia">%R</th>
                         <th class="text-end">Acurácia</th>
                         <th class="text-end">Col 10</th>
                         <th class="text-end">Diferença</th>
+                        <th class="text-end">N Pontos</th>
+                        <th class="text-end">N Acertos</th>
+                        <th class="text-end" title="Falso Positivo (comissão média): % de pontos previstos como X que não são X">Falso Pos.</th>
+                        <th class="text-end" title="Falso Negativo (omissão média): % de pontos reais X classificados como outra classe">Falso Neg.</th>
                     </tr></thead>
                     <tbody>${rows}</tbody>
                 </table>`;
         } catch (e) {
             console.warn('Ranking acurácia:', e);
             if (el) el.innerHTML = '<p class="text-muted text-center p-4 small">Erro ao carregar ranking</p>';
+        }
+    }
+
+    /* popula o selector de classe conforme num_class atual */
+    function updateClassSelector() {
+        const sel     = document.getElementById('class-ranking-select');
+        if (!sel) return;
+        const nc      = document.querySelector('input[name="num_class"]:checked')?.value || '10';
+        const names   = nc === '7' ? window.CLASS_NAMES_7 : window.CLASS_NAMES_10;
+        const prevVal = sel.value;
+        sel.innerHTML = Object.entries(names)
+            .map(([code, name]) =>
+                `<option value="${code}"${code == prevVal ? ' selected' : ''}>${name}</option>`)
+            .join('');
+        if (!sel.value) sel.value = Object.keys(names)[0];
+    }
+
+    /* tabela de Área e Erro por classe e bacia */
+    async function loadClassRanking(params) {
+        const el  = document.getElementById('class-ranking-container');
+        const sel = document.getElementById('class-ranking-select');
+        if (!el || !sel || !sel.value) return;
+
+        try {
+            const qs  = new URLSearchParams({
+                layer_key:  params.layer_key,
+                version:    params.version,
+                num_class:  params.num_class,
+                janela:     params.janela || '',
+                classe:     sel.value,
+                start_year: params.start_year,
+                end_year:   params.end_year,
+            }).toString();
+            const res  = await fetch(`/api/class_ranking?${qs}`);
+            const data = await res.json();
+
+            if (!data.length) {
+                el.innerHTML = '<p class="text-muted text-center p-4 small">Sem dados para esta classe</p>';
+                return;
+            }
+
+            const fmtKha = v => v != null
+                ? (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' k ha'
+                : '—';
+
+            const rows = data.map(r => {
+                const bold     = r.id_bacia === 'Caatinga' ? 'font-weight:600;' : '';
+                const diffVal  = r.diff;
+                const diffFmt  = diffVal != null ? fmtKha(diffVal) : '—';
+                const diffCls  = diffVal != null ? (diffVal < 0 ? 'loss' : 'gain') : '';
+                const diffIcon = diffVal != null ? (diffVal < 0 ? '▼ ' : (diffVal > 0 ? '▲ ' : '■ ')) : '';
+                return `<tr style="${bold}">
+                    <td>${r.id_bacia}</td>
+                    <td style="padding:2px 6px">${sparkline(r.years_area, 80, 24, '#1a1a1a')}</td>
+                    <td class="text-end">${fmtKha(r.area_start)}</td>
+                    <td class="text-end">${fmtKha(r.area_end)}</td>
+                    <td class="text-end ${diffCls}">${diffIcon}${diffFmt}</td>
+                </tr>`;
+            }).join('');
+
+            el.innerHTML = `
+                <table class="gain-loss-table">
+                    <thead><tr>
+                        <th>Bacia</th>
+                        <th>Tendência</th>
+                        <th class="text-end">Área ${params.start_year}</th>
+                        <th class="text-end">Área ${params.end_year}</th>
+                        <th class="text-end">Diferença</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+        } catch (e) {
+            console.warn('Class ranking:', e);
+            if (el) el.innerHTML = '<p class="text-muted text-center p-4 small">Erro ao carregar</p>';
         }
     }
 
@@ -473,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rowSums = matrix.map(row => row.reduce((a, b) => a + b, 0));
         const colSums = classes.map((_, j) => matrix.reduce((s, row) => s + (row[j] || 0), 0));
 
-        const yLabels = classes.map(c => clsNames[c] || `Cl.${c}`);
+        const yLabels = classes.map(c => cmLabel(clsNames[c] || `Cl.${c}`));
         const h = Math.max(220, n * 26 + 60);
 
         // Tick labels: eixo simétrico mostrando valores absolutos (como na referência)
@@ -571,6 +718,34 @@ document.addEventListener('DOMContentLoaded', () => {
         Plotly.react(elOmit, omitTraces, sharedLayout, { responsive: true, displayModeBar: false });
     }
 
+    /* abreviações usadas apenas na matriz de confusão e gráficos de erro */
+    const CM_ABBREV = {
+        'Floresta':       'Flor.',
+        'Savana':         'Sav.',
+        'Campestre':      'Camp.',
+        'Pastagem':       'Past.',
+        'Lav. Temporária':'Lav. T.',
+        'Mos. Uso':       'Mos.',
+        'Urb./Solo Exp.': 'Solo',
+        'Afloramento':    'Aflo.',
+        'Água':           'Água',
+        'Lav. Perene':    'Lav. P.',
+    };
+    function cmLabel(fullName) { return CM_ABBREV[fullName] || fullName; }
+
+    /* ajusta Ganho/Perda (col-lg-5 ≈ 42%) e CM (col-lg-7 ≈ 58%) lado a lado */
+    function setCmSideBySide(show) {
+        const glPanel = document.getElementById('gain-loss-panel');
+        const cmPanel = document.getElementById('cm-panel');
+        if (show) {
+            glPanel?.classList.replace('col-12', 'col-lg-5');
+            cmPanel?.classList.replace('col-12', 'col-lg-7');
+        } else {
+            glPanel?.classList.replace('col-lg-5', 'col-12');
+            cmPanel?.classList.replace('col-lg-7', 'col-12');
+        }
+    }
+
     /* 7g. Matriz de confusão */
     function renderConfusionMatrix(cm) {
         const el  = document.getElementById('confusion-matrix-container');
@@ -580,9 +755,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const showCM = document.getElementById('toggle-cm').checked;
         if (!showCM || !cm) {
             if (pan) pan.style.display = 'none';
+            setCmSideBySide(false);
             renderCmErrorCharts(null);
             return;
         }
+        setCmSideBySide(true);
         if (pan) pan.style.display = '';
 
         const classes = cm.classes;
@@ -601,10 +778,11 @@ document.addEventListener('DOMContentLoaded', () => {
             : window.CLASS_NAMES_10;
 
         const header = `<tr><th class="cm-corner">Ref ↓ / Pred →</th>` +
-            classes.map(c => `<th>${clsNames[c] || c}</th>`).join('') + `<th>Total</th></tr>`;
+            classes.map(c => `<th title="${clsNames[c] || c}">${cmLabel(clsNames[c] || String(c))}</th>`).join('') + `<th>Total</th></tr>`;
 
         const bodyRows = matrix.map((row, i) => {
             const rowTotal = row.reduce((a, b) => a + b, 0);
+            const fullName = clsNames[classes[i]] || classes[i];
             const cells    = row.map((v, j) => {
                 const pct  = rowTotal > 0 ? (v / rowTotal * 100) : 0;
                 const isDiag = i === j;
@@ -613,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     : `background:rgba(231,76,60,${(pct/200).toFixed(3)})`;
                 return `<td style="${style}" title="${v} (${pct.toFixed(1)}%)">${v}</td>`;
             }).join('');
-            return `<tr><th>${clsNames[classes[i]] || classes[i]}</th>${cells}<td class="cm-total">${rowTotal}</td></tr>`;
+            return `<tr><th title="${fullName}">${cmLabel(String(fullName))}</th>${cells}<td class="cm-total">${rowTotal}</td></tr>`;
         }).join('');
 
         const colTotals = classes.map((_, j) => matrix.reduce((s, r) => s + (r[j] || 0), 0));
@@ -668,6 +846,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderGainLoss(data.gain_loss, p.start_year, p.end_year);
             renderConfusionMatrix(data.confusion_matrix);
             loadAccuracyRanking(p);
+            updateClassSelector();
+            loadClassRanking(p);
 
         } catch (err) {
             console.error('Erro ao atualizar dashboard:', err);
@@ -689,8 +869,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (!this.checked) {
             const pan = document.getElementById('cm-panel');
             if (pan) pan.style.display = 'none';
+            setCmSideBySide(false);
+            renderCmErrorCharts(null);
         } else {
-            // precisa chamar API com include_cm=true
             updateDashboard();
         }
     });
@@ -713,6 +894,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('input[name="limit_shp_filter"]').forEach(
         el => el.addEventListener('change', updateDashboard)
     );
+    document.getElementById('class-ranking-select')?.addEventListener('change', () => {
+        loadClassRanking(getParams());
+    });
     if (sliderEl) {
         sliderEl.noUiSlider.on('change', updateDashboard);
     }
